@@ -1,0 +1,10 @@
+[
+  {
+    "claim_id": "CL-2001",
+    "customer_id": "C-1001",
+    "claim_type": "property_damage",
+    "claim_amount": 18000,
+    "documents_complete": true,
+    "fraud_signal": false
+  }
+]

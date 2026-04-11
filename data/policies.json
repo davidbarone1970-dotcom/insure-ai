@@ -1,0 +1,9 @@
+[
+  {
+    "policy_id": "P-3001",
+    "customer_id": "C-1001",
+    "policy_type": "business_liability",
+    "annual_premium": 6400,
+    "renewal_due_in_days": 75
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "customer_id": "C-1001",
+    "name": "Alpha Treuhand GmbH",
+    "segment": "SMB",
+    "company_size": 42,
+    "interaction_level": 7,
+    "existing_customer": true,
+    "tenure_years": 4,
+    "satisfaction_score": 6,
+    "policy_count": 3
+  },
+  {
+    "customer_id": "C-1002",
+    "name": "Nova Bau AG",
+    "segment": "SMB",
+    "company_size": 18,
+    "interaction_level": 3,
+    "existing_customer": false,
+    "tenure_years": 0,
+    "satisfaction_score": 0,
+    "policy_count": 0
+  }
+]
