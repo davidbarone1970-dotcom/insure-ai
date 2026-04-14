@@ -41,7 +41,7 @@ INSURE.AI is a showcase platform demonstrating how AI agents can automate core i
 
 The full platform spans five logical layers: customer-facing channels, core business systems, an integration & automation layer (n8n), a data layer, and the AI & Agent layer with a central Orchestrator.
 
-![Full System Architecture](mermaiddiagram_11.png)
+![Full System Architecture](docs/diagrams/mermaid-diagram_11.png)
 
 | Layer | Components |
 |---|---|
@@ -61,7 +61,7 @@ The full platform spans five logical layers: customer-facing channels, core busi
 
 Automatically qualifies, scores, and routes incoming leads to the right channel — sales team, nurturing sequence, or full automation.
 
-![Lead Intelligence Flow](mermaiddiagram_1.png)
+![Lead Intelligence Flow](docs/diagrams/mermaid-diagram_1.png)
 
 **Stages:** New Lead → Load Data → Lead Intelligence Agent → Score & Priority → Orchestrator → Sales / Nurturing / Automation → Logging
 
@@ -71,7 +71,7 @@ Automatically qualifies, scores, and routes incoming leads to the right channel 
 
 Detects churn risk signals, calculates retention scores, and triggers personalized campaigns, call tasks, or tailored offers.
 
-![Retention Flow](mermaiddiagram_2.png)
+![Retention Flow](docs/diagrams/mermaid-diagram_2.png)
 
 **Stages:** Risk Trigger → Load Customer Data → Retention Agent → Churn Score → Orchestrator → Campaign / Call / Offer → Tracking
 
@@ -81,7 +81,7 @@ Detects churn risk signals, calculates retention scores, and triggers personaliz
 
 Classifies and prioritizes incoming claims, then routes them to automated processing, manual review, or escalation.
 
-![Claims Flow](mermaiddiagram_3.png)
+![Claims Flow](docs/diagrams/mermaid-diagram_3.png)
 
 **Stages:** Claim Submission → Load Data → Claims Agent → Classification → Orchestrator → Auto / Escalate / Review → Audit Logging
 
@@ -91,7 +91,7 @@ Classifies and prioritizes incoming claims, then routes them to automated proces
 
 Generates personalized product recommendations based on customer and product context, routed to sales or sent as automated offers.
 
-![Offer Flow](mermaiddiagram_5.png)
+![Offer Flow](docs/diagrams/mermaid-diagram_5.png)
 
 **Stages:** Offer Trigger → Load Context → Offer Agent → Recommendation → Orchestrator → Generate Offer → Store & Log
 
@@ -103,13 +103,13 @@ The Orchestrator is the central routing brain of the platform. It evaluates agen
 
 ### Orchestrator Logic (General)
 
-![Orchestrator Decision](mermaiddiagram_9.png)
+![Orchestrator Decision](docs/diagrams/mermaid-diagram_9.png)
 
 ### Decision Engine Detail
 
 Every agent output passes through a four-stage evaluation before routing:
 
-![Decision Engine](mermaiddiagram_4.png)
+![Decision Engine](docs/diagrams/mermaid-diagram_4.png)
 
 | Stage | Purpose |
 |---|---|
@@ -126,7 +126,7 @@ The following diagrams show the full technical pipeline for each use case, inclu
 
 ### Lead Pipeline
 
-![Lead Pipeline Detail](mermaiddiagram_6.png)
+![Lead Pipeline Detail](docs/diagrams/mermaid-diagram_6.png)
 
 `Trigger: New Lead` → `Validate Lead Data` → `Load Customer Context` → `Call Lead Agent` → `Apply Orchestrator Logic` → `Route to Sales / Nurturing / Automation` → `Log Result`
 
@@ -134,7 +134,7 @@ The following diagrams show the full technical pipeline for each use case, inclu
 
 ### Retention Pipeline
 
-![Retention Pipeline Detail](mermaiddiagram_7.png)
+![Retention Pipeline Detail](docs/diagrams/mermaid-diagram_7.png)
 
 `Trigger: Retention Event` → `Load Customer History` → `Call Retention Agent` → `Calculate Churn Risk` → `Apply Orchestrator Logic` → `Send Campaign / Create Call Task / Generate Offer` → `Track Outcome`
 
@@ -142,7 +142,7 @@ The following diagrams show the full technical pipeline for each use case, inclu
 
 ### Claims Pipeline
 
-![Claims Pipeline Detail](mermaiddiagram_10.png)
+![Claims Pipeline Detail](docs/diagrams/mermaid-diagram_10.png)
 
 `Trigger: New Claim` → `Load Claim + Policy Data` → `Call Claims Agent` → `Classification + Priority` → `Apply Orchestrator Logic` → `Auto Process / Manual Review / Escalation` → `Audit Log`
 
@@ -150,7 +150,7 @@ The following diagrams show the full technical pipeline for each use case, inclu
 
 ### Offer Pipeline
 
-![Offer Pipeline Detail](mermaiddiagram.png)
+![Offer Pipeline Detail](docs/diagrams/mermaid-diagram.png)
 
 `Trigger: Offer Event` → `Load Product + Customer Context` → `Call Offer Logic` → `Draft Recommendation` → `Apply Orchestrator Logic` → `Send to Sales / Send Automated Offer` → `Log Output`
 
