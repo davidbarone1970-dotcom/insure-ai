@@ -1,195 +1,187 @@
-# INSURE.AI – The SMB Transformation Engine
+# INSURE.AI — Intelligent Insurance Automation Platform
 
-> End-to-end simulation of an AI-driven digital transformation for SMB insurance companies.
-
----
-
-## 🚀 Overview
-
-**INSURE.AI** is a hands-on simulation project that demonstrates how a small-to-mid-sized insurance company can transform into an AI-driven, automated, and data-centric organization.
-
-The project combines:
-- Business process transformation
-- AI agent orchestration
-- Workflow automation
-- Realistic system architecture
-- Executable simulation in Python
+> AI-powered lead processing, retention, claims assessment, and offer management for modern insurance operations. Built on a classical agent architecture (n8n + FastAPI + LLM).
 
 ---
 
-## 🎯 Project Goal
+## Table of Contents
 
-To simulate a **real-world digital transformation**, including:
-
-- Full lifecycle: Lead → Policy → Claim → Retention
-- Identification of pain points and quick wins
-- Implementation of AI-driven workflows
-- Construction of autonomous AI agents
-- Technical and business documentation
-
----
-
-## 🏢 Use Case
-
-Simulated SMB insurance company:
-
-- ~60 employees  
-- CHF 12–15M annual revenue  
-- Sales via broker, direct, and online channels  
-
-### Challenges:
-- Fragmented systems  
-- Manual processes  
-- No customer 360° view  
-- Low automation  
-- Limited data usage  
+- [Overview](#overview)
+- [System Architecture](#system-architecture)
+- [Core Use Cases](#core-use-cases)
+  - [Lead Intelligence](#1-lead-intelligence)
+  - [Customer Retention](#2-customer-retention)
+  - [Claims Assessment](#3-claims-assessment)
+  - [Offer Management](#4-offer-management)
+- [Orchestrator & Decision Engine](#orchestrator--decision-engine)
+- [Pipeline Detail](#pipeline-detail)
+  - [Lead Pipeline](#lead-pipeline)
+  - [Retention Pipeline](#retention-pipeline)
+  - [Claims Pipeline](#claims-pipeline)
+  - [Offer Pipeline](#offer-pipeline)
+- [Tech Stack](#tech-stack)
+- [Status](#status)
 
 ---
 
-## 🧠 Solution Concept
+## Overview
 
-INSURE.AI introduces a layered transformation model:
+INSURE.AI is a showcase platform demonstrating how AI agents can automate core insurance workflows. The system ingests events from multiple channels, processes them through specialized AI agents, and routes decisions to the appropriate downstream actions — fully logged and auditable.
 
-### 1. Channels
-- Web, Broker, Call Center, Email
-
-### 2. Core Systems
-- CRM
-- Policy Management
-- Claims Management
-
-### 3. Integration Layer
-- APIs
-- Workflow automation (n8n-ready)
-
-### 4. Data Layer
-- Customer data
-- Policy data
-- Claims data
-- Interaction history
-
-### 5. AI Agent Layer
-- Lead Intelligence Agent
-- Claims Assessment Agent
-- Retention Agent
-- Orchestrator Agent
-
-### 6. Insights & Governance
-- KPI tracking
-- Monitoring & logging
-- Human-in-the-loop control
+**Core design principles:**
+- Event-driven, webhook-based ingestion
+- Modular agents per use case (Lead, Retention, Claims, Offer)
+- Central Orchestrator for routing logic
+- Human-in-the-loop escalation paths
+- Full audit trail and monitoring
 
 ---
 
-## 🏗️ Architecture
+## System Architecture
 
-### Executive View
+The full platform spans five logical layers: customer-facing channels, core business systems, an integration & automation layer (n8n), a data layer, and the AI & Agent layer with a central Orchestrator.
 
-```mermaid
-flowchart LR
-    A["Channels"] --> B["Core Systems"]
-    B --> C["Integration & Automation"]
-    C --> D["Data Layer"]
-    D --> E["AI Agent Layer"]
-    E --> F["Insights & Governance"]
+![Full System Architecture](docs/diagrams/mermaiddiagram_11.png)
 
-⚙️ Project Structure
-insure-ai-transformation-engine/
-│
-├── agents/        # AI agents (lead, claims, retention, orchestrator)
-├── workflows/     # automation flows (n8n ready)
-├── data/          # simulation datasets
-├── models/        # scoring & prediction logic
-├── simulation/    # main simulation script
-├── api/           # optional API layer
-├── architecture/  # diagrams and system design
-├── docs/          # manuals (technical + business)
-├── tests/         # test scenarios
+| Layer | Components |
+|---|---|
+| **Channels** | Call Center, Web Portal, Broker Channel, Email / Contact Forms |
+| **Core Systems** | CRM System, Policy Management, Claims Management, Marketing / Retention |
+| **Integration** | API Layer → n8n Workflow Engine → Event / Task Routing |
+| **Data** | Customer Data, Policy Data, Claims Data, Interaction History, Simulation Store |
+| **AI Agents** | Lead Intelligence Agent, Claims Assessment Agent, Retention Agent |
+| **Control** | Orchestrator Agent + LLM/ML Models |
+| **Insights** | KPI Dashboard, Monitoring & Logging, Audit Trail, Human-in-the-Loop Review |
 
-🧪 Simulation
-Run the simulation
-python simulation/run_simulation.py
-Example Output
---- Lead Simulation ---
-Score: 82 → Routed to Sales
+---
 
---- Claims Simulation ---
-Claim classified as: High Priority
+## Core Use Cases
 
---- Retention Simulation ---
-Churn Risk: High → Action Triggered
+### 1. Lead Intelligence
 
-🤖 AI Agents
+Automatically qualifies, scores, and routes incoming leads to the right channel — sales team, nurturing sequence, or full automation.
 
-The system is built around specialized AI agents:
+![Lead Intelligence Flow](docs/diagrams/mermaiddiagram_1.png)
 
-Lead Agent → scores and prioritizes leads
-Claims Agent → classifies claims and determines handling
-Retention Agent → predicts churn and triggers actions
-Orchestrator Agent → coordinates decisions and workflows
+**Stages:** New Lead → Load Data → Lead Intelligence Agent → Score & Priority → Orchestrator → Sales / Nurturing / Automation → Logging
 
-👉 Full logic:
-See architecture/ai-agent-flow.md
+---
 
-🔄 Key Workflows
-1. Lead Processing
-Input → Scoring → Routing → Action
-2. Claims Handling
-Submission → Classification → Decision → Processing
-3. Customer Retention
-Data → Risk Detection → Intervention
+### 2. Customer Retention
 
-📊 Business Impact (Simulated)
-Area	Impact
-Sales	+20–30% conversion
-Claims	-40% processing time
-Retention	-15% churn
-Operations	-25% cost
+Detects churn risk signals, calculates retention scores, and triggers personalized campaigns, call tasks, or tailored offers.
 
-🛠️ Technology Stack
-Core
-Python
-VS Code
-JSON data simulation
-AI
-OpenAI / Anthropic (extendable)
-Rule-based + ML-ready logic
-Automation
-n8n (planned integration)
-API-based orchestration
+![Retention Flow](docs/diagrams/mermaiddiagram_2.png)
 
-🔮 Roadmap
-Phase 1
-Data foundation
-Basic simulation
-Phase 2
-AI agents
-Workflow automation
-Phase 3
-Orchestrator logic
-End-to-end automation
-Phase 4
-Full AI-driven system
-Real-time decisioning
+**Stages:** Risk Trigger → Load Customer Data → Retention Agent → Churn Score → Orchestrator → Campaign / Call / Offer → Tracking
 
-📘 Documentation
-docs/technical_manual.md → system & setup
-docs/business_manual.md → business logic & value
-architecture/diagram.md → system architecture
-architecture/ai-agent-flow.md → AI logic
+---
 
-💡 Key Differentiator
-INSURE.AI is not a theoretical concept.
-It is a working simulation of a digital transformation, combining:
+### 3. Claims Assessment
 
-Business processes
-AI agents
-Automation workflows
-Real system architecture
+Classifies and prioritizes incoming claims, then routes them to automated processing, manual review, or escalation.
 
-👤 Author
-David Barone
-Digital Transformation | AI Strategy | SMB Innovation
+![Claims Flow](docs/diagrams/mermaiddiagram_3.png)
 
-⭐ Vision
-Building a practical blueprint for AI-driven SMB transformation.
+**Stages:** Claim Submission → Load Data → Claims Agent → Classification → Orchestrator → Auto / Escalate / Review → Audit Logging
+
+---
+
+### 4. Offer Management
+
+Generates personalized product recommendations based on customer and product context, routed to sales or sent as automated offers.
+
+![Offer Flow](docs/diagrams/mermaiddiagram_5.png)
+
+**Stages:** Offer Trigger → Load Context → Offer Agent → Recommendation → Orchestrator → Generate Offer → Store & Log
+
+---
+
+## Orchestrator & Decision Engine
+
+The Orchestrator is the central routing brain of the platform. It evaluates agent outputs against business rules, risk thresholds, and customer value signals before committing to a path.
+
+### Orchestrator Logic (General)
+
+![Orchestrator Decision](docs/diagrams/mermaiddiagram_9.png)
+
+### Decision Engine Detail
+
+Every agent output passes through a four-stage evaluation before routing:
+
+![Decision Engine](docs/diagrams/mermaiddiagram_4.png)
+
+| Stage | Purpose |
+|---|---|
+| **Business Rules** | Apply hard guardrails and compliance constraints |
+| **Confidence Check** | Validate agent confidence score against thresholds |
+| **Customer Value / Risk** | Weight decision by customer LTV and risk profile |
+| **Decision** | Route to Automation Path, Human Review, or Escalation |
+
+---
+
+## Pipeline Detail
+
+The following diagrams show the full technical pipeline for each use case, including all intermediate steps and branching logic.
+
+### Lead Pipeline
+
+![Lead Pipeline Detail](docs/diagrams/mermaiddiagram_6.png)
+
+`Trigger: New Lead` → `Validate Lead Data` → `Load Customer Context` → `Call Lead Agent` → `Apply Orchestrator Logic` → `Route to Sales / Nurturing / Automation` → `Log Result`
+
+---
+
+### Retention Pipeline
+
+![Retention Pipeline Detail](docs/diagrams/mermaiddiagram_7.png)
+
+`Trigger: Retention Event` → `Load Customer History` → `Call Retention Agent` → `Calculate Churn Risk` → `Apply Orchestrator Logic` → `Send Campaign / Create Call Task / Generate Offer` → `Track Outcome`
+
+---
+
+### Claims Pipeline
+
+![Claims Pipeline Detail](docs/diagrams/mermaiddiagram_10.png)
+
+`Trigger: New Claim` → `Load Claim + Policy Data` → `Call Claims Agent` → `Classification + Priority` → `Apply Orchestrator Logic` → `Auto Process / Manual Review / Escalation` → `Audit Log`
+
+---
+
+### Offer Pipeline
+
+![Offer Pipeline Detail](docs/diagrams/mermaiddiagram.png)
+
+`Trigger: Offer Event` → `Load Product + Customer Context` → `Call Offer Logic` → `Draft Recommendation` → `Apply Orchestrator Logic` → `Send to Sales / Send Automated Offer` → `Log Output`
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Workflow Engine | n8n |
+| Agent Backend | FastAPI (Python) |
+| AI / LLM | Claude (Anthropic API) |
+| Decision Logic | Custom Orchestrator (rule engine + LLM) |
+| Data Storage | PostgreSQL / JSON store |
+| Monitoring | Custom logging + KPI Dashboard |
+
+---
+
+## Status
+
+**Advanced MVP — ~80% complete**
+
+- [x] Core pipeline architecture (Lead, Retention, Claims, Offer)
+- [x] Agent integration (FastAPI + LLM calls)
+- [x] Orchestrator routing logic
+- [x] Logging & audit trail
+- [ ] KPI Dashboard UI
+- [ ] Full Human-in-the-Loop review interface
+- [ ] Production deployment & load testing
+- [ ] Additional industry verticals
+
+---
+
+*INSURE.AI is designed as a multi-industry showcase. The insurance vertical is the initial implementation; the architecture is extensible to other regulated industries.*
