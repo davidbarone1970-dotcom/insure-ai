@@ -3,17 +3,21 @@ INSURE.AI — Claims Assessment Agent
 FastAPI endpoint: POST /agent/claims
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
 import anthropic
 import json
 import logging
 from datetime import datetime
 
+from db.database import db_session
+from db.repositories import ClaimRepository, EventRepository
+
 logger = logging.getLogger(__name__)
 
-# ── MODELS ────────────────────────────────────────────────────────────────────
+# ── MODELS ────────────────────────────────────────────────────────────────
 
 class ClaimInput(BaseModel):
     claim_id: str
@@ -24,8 +28,7 @@ class ClaimInput(BaseModel):
     currency: str = "CHF"
     description: str
     submission_channel: str          # "web", "phone", "broker", "email"
-    attachments: List[str] = []      # doc references / photo IDs
-    # enriched context (loaded by n8n before calling agent)
+    attachments: List[str] = []
     customer_since_years: Optional[int] = None
     previous_claims_count: Optional[int] = None
     previous_claims_total: Optional[float] = None
@@ -38,16 +41,16 @@ class ClaimResult(BaseModel):
     claim_id: str
     classification: str              # "standard", "complex", "fraud_suspected", "catastrophic"
     priority: str                    # "low", "medium", "high", "critical"
-    confidence: float                # 0.0 – 1.0
+    confidence: float
     recommended_route: str           # "auto_process", "manual_review", "escalation", "siu_referral"
-    fraud_score: float               # 0.0 – 1.0
+    fraud_score: float
     estimated_payout: Optional[float]
     flags: List[dict]
     reasoning: str
     suggested_next_steps: List[str]
     processed_at: str
 
-# ── SYSTEM PROMPT ──────────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────
 
 CLAIMS_SYSTEM_PROMPT = """You are the Claims Assessment Agent for INSURE.AI, an intelligent insurance automation platform.
 
@@ -96,7 +99,7 @@ JSON Schema:
   "suggested_next_steps": ["...", "..."]
 }"""
 
-# ── AGENT LOGIC ────────────────────────────────────────────────────────────────
+# ── AGENT LOGIC ───────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic()
 
@@ -124,7 +127,6 @@ def build_claim_prompt(claim: ClaimInput) -> str:
         parts.append(f"Annual premium: CHF {claim.policy_annual_premium:,.0f}")
     if claim.customer_ltv:
         parts.append(f"Customer LTV: CHF {claim.customer_ltv:,.0f}")
-
     return "\n".join(parts)
 
 
@@ -143,7 +145,6 @@ async def run_claims_agent(claim: ClaimInput) -> ClaimResult:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        # Fallback: extract JSON block if wrapped
         import re
         match = re.search(r'\{.*\}', raw, re.DOTALL)
         if match:
@@ -165,24 +166,77 @@ async def run_claims_agent(claim: ClaimInput) -> ClaimResult:
         processed_at=datetime.utcnow().isoformat() + "Z"
     )
 
-
-# ── FASTAPI ROUTES ─────────────────────────────────────────────────────────────
+# ── FASTAPI ROUTES ────────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
     @app.post("/agent/claims", response_model=ClaimResult, tags=["Agents"])
-    async def assess_claim(claim: ClaimInput):
+    async def assess_claim(
+        claim: ClaimInput,
+        session: AsyncSession = Depends(db_session),
+    ):
         """
         Claims Assessment Agent.
         Receives enriched claim data, returns classification + routing decision.
+        Persists result to DB.
         """
         try:
             result = await run_claims_agent(claim)
+
+            # ── Persist to DB ──────────────────────────────────────────
+            claim_repo = ClaimRepository(session)
+            event_repo = EventRepository(session)
+
+            await claim_repo.create({
+                "claim_id":              claim.claim_id,
+                "customer_id":           claim.customer_id,
+                "policy_id":             claim.policy_id,
+                "claim_type":            claim.claim_type,
+                "claim_amount":          claim.claim_amount,
+                "currency":              claim.currency,
+                "description":           claim.description,
+                "submission_channel":    claim.submission_channel,
+                "classification":        result.classification,
+                "priority":              result.priority,
+                "confidence":            result.confidence,
+                "fraud_score":           result.fraud_score,
+                "estimated_payout":      result.estimated_payout,
+                "agent_reasoning":       result.reasoning,
+                "flags":                 result.flags,
+                "recommended_route":     result.recommended_route,
+                "final_route":           result.recommended_route,
+                "agent_processed_at":    datetime.utcnow(),
+                "customer_snapshot": {
+                    "customer_since_years":   claim.customer_since_years,
+                    "previous_claims_count":  claim.previous_claims_count,
+                    "previous_claims_total":  claim.previous_claims_total,
+                    "policy_type":            claim.policy_type,
+                    "policy_annual_premium":  claim.policy_annual_premium,
+                    "policy_coverage_limit":  claim.policy_coverage_limit,
+                    "customer_ltv":           claim.customer_ltv,
+                },
+            })
+
+            await event_repo.log(
+                pipeline=    "claims",
+                entity_id=   claim.claim_id,
+                entity_type= "claim",
+                event_type=  "agent_processed",
+                payload={
+                    "classification": result.classification,
+                    "route":          result.recommended_route,
+                    "priority":       result.priority,
+                    "confidence":     result.confidence,
+                    "fraud_score":    result.fraud_score,
+                },
+            )
+
             logger.info(
                 f"[Claims] {claim.claim_id} → {result.recommended_route} "
                 f"(confidence={result.confidence:.2f}, fraud={result.fraud_score:.2f})"
             )
             return result
+
         except Exception as e:
             logger.error(f"[Claims] Error processing {claim.claim_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))

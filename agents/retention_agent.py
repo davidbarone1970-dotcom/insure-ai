@@ -3,63 +3,61 @@ INSURE.AI — Retention Agent
 FastAPI endpoint: POST /agent/retention
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
 import anthropic
 import json
 import logging
 from datetime import datetime
 
+from db.database import db_session
+from db.repositories import RetentionRepository, EventRepository
+
 logger = logging.getLogger(__name__)
 
-# ── MODELS ────────────────────────────────────────────────────────────────────
+# ── MODELS ────────────────────────────────────────────────────────────────
 
 class RetentionInput(BaseModel):
     customer_id: str
     trigger_type: str                # "login_anomaly", "portal_activity", "renewal_upcoming",
                                      # "competitor_signal", "support_contact", "payment_late", "manual"
     trigger_detail: Optional[str] = None
-
-    # Customer profile (loaded by n8n)
     customer_name: Optional[str] = None
-    segment: Optional[str] = None    # "private", "sme", "enterprise"
+    segment: Optional[str] = None
     customer_since_years: Optional[int] = None
     annual_premium: Optional[float] = None
     policy_count: Optional[int] = None
     policy_types: List[str] = []
     last_claim_months_ago: Optional[int] = None
     total_claims_ever: Optional[int] = None
-    nps_score: Optional[int] = None  # -100 to 100
-    renewal_due_days: Optional[int] = None  # days until next renewal
-
-    # Behavioral signals (last 30 days)
+    nps_score: Optional[int] = None
+    renewal_due_days: Optional[int] = None
     portal_logins: Optional[int] = None
     contract_views: Optional[int] = None
     competitor_portal_visits: Optional[int] = None
     support_contacts: Optional[int] = None
-    email_open_rate: Optional[float] = None  # 0.0 – 1.0
-
-    # Computed LTV
+    email_open_rate: Optional[float] = None
     customer_ltv: Optional[float] = None
 
 
 class RetentionResult(BaseModel):
     customer_id: str
-    churn_score: float               # 0.0 – 1.0 (higher = more likely to churn)
+    churn_score: float
     churn_risk_level: str            # "low", "medium", "high", "critical"
     confidence: float
     recommended_route: str           # "automated_campaign", "call_task", "generate_offer", "no_action"
-    offer_type: Optional[str]        # "loyalty_discount", "product_upgrade", "bundle_deal", "premium_waiver"
+    offer_type: Optional[str]
     offer_value_suggestion: Optional[str]
     campaign_segment: Optional[str]
-    priority_score: int              # 1–100, for queue ordering
+    priority_score: int
     flags: List[dict]
     reasoning: str
     suggested_next_steps: List[str]
     processed_at: str
 
-# ── SYSTEM PROMPT ──────────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────
 
 RETENTION_SYSTEM_PROMPT = """You are the Retention Agent for INSURE.AI, an intelligent insurance automation platform.
 
@@ -126,7 +124,7 @@ JSON Schema:
   "suggested_next_steps": ["...", "..."]
 }"""
 
-# ── AGENT LOGIC ────────────────────────────────────────────────────────────────
+# ── AGENT LOGIC ───────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic()
 
@@ -152,7 +150,6 @@ def build_retention_prompt(data: RetentionInput) -> str:
     if data.total_claims_ever is not None:
         parts.append(f"Total claims: {data.total_claims_ever}" +
                      (f" | Last: {data.last_claim_months_ago} months ago" if data.last_claim_months_ago else ""))
-
     parts.append("\nBEHAVIORAL SIGNALS (last 30 days):")
     if data.portal_logins is not None:
         parts.append(f"  Portal logins: {data.portal_logins}")
@@ -164,7 +161,6 @@ def build_retention_prompt(data: RetentionInput) -> str:
         parts.append(f"  Support contacts: {data.support_contacts}")
     if data.email_open_rate is not None:
         parts.append(f"  Email open rate: {data.email_open_rate:.0%}")
-
     return "\n".join(parts)
 
 
@@ -206,24 +202,75 @@ async def run_retention_agent(data: RetentionInput) -> RetentionResult:
         processed_at=datetime.utcnow().isoformat() + "Z"
     )
 
-
-# ── FASTAPI ROUTES ─────────────────────────────────────────────────────────────
+# ── FASTAPI ROUTES ────────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
     @app.post("/agent/retention", response_model=RetentionResult, tags=["Agents"])
-    async def assess_retention(data: RetentionInput):
+    async def assess_retention(
+        data: RetentionInput,
+        session: AsyncSession = Depends(db_session),
+    ):
         """
         Retention Agent.
         Computes churn score and recommends retention action.
+        Persists result to DB.
         """
         try:
             result = await run_retention_agent(data)
+
+            # ── Persist to DB ──────────────────────────────────────────
+            retention_repo = RetentionRepository(session)
+            event_repo     = EventRepository(session)
+
+            await retention_repo.create({
+                "customer_id":            data.customer_id,
+                "trigger_type":           data.trigger_type,
+                "trigger_detail":         data.trigger_detail,
+                "churn_score":            result.churn_score,
+                "churn_risk_level":       result.churn_risk_level,
+                "confidence":             result.confidence,
+                "offer_type":             result.offer_type,
+                "offer_value_suggestion": result.offer_value_suggestion,
+                "campaign_segment":       result.campaign_segment,
+                "priority_score":         result.priority_score,
+                "agent_reasoning":        result.reasoning,
+                "flags":                  result.flags,
+                "recommended_route":      result.recommended_route,
+                "final_route":            result.recommended_route,
+                "agent_processed_at":     datetime.utcnow(),
+                "customer_snapshot": {
+                    "customer_name":          data.customer_name,
+                    "segment":                data.segment,
+                    "customer_since_years":   data.customer_since_years,
+                    "annual_premium":         data.annual_premium,
+                    "policy_count":           data.policy_count,
+                    "policy_types":           data.policy_types,
+                    "customer_ltv":           data.customer_ltv,
+                    "renewal_due_days":       data.renewal_due_days,
+                    "nps_score":              data.nps_score,
+                },
+            })
+
+            await event_repo.log(
+                pipeline=    "retention",
+                entity_id=   data.customer_id,
+                entity_type= "retention",
+                event_type=  "agent_processed",
+                payload={
+                    "churn_score":      result.churn_score,
+                    "churn_risk_level": result.churn_risk_level,
+                    "route":            result.recommended_route,
+                    "confidence":       result.confidence,
+                },
+            )
+
             logger.info(
                 f"[Retention] {data.customer_id} → churn={result.churn_score:.2f} "
                 f"({result.churn_risk_level}) → {result.recommended_route}"
             )
             return result
+
         except Exception as e:
             logger.error(f"[Retention] Error processing {data.customer_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
