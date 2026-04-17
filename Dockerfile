@@ -6,6 +6,8 @@ RUN pip install --no-cache-dir fastapi==0.115.0 uvicorn[standard]==0.30.6 sqlalc
 
 COPY . .
 
+RUN ls -la /app/
+
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -c 'import main' 2>&1 && uvicorn main:app --host 0.0.0.0 --port 8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "debug"]
