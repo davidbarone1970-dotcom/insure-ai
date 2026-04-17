@@ -1,37 +1,36 @@
-"""
+﻿"""
 INSURE.AI — Lead Intelligence Agent
 FastAPI endpoint: POST /agent/lead
 """
 
 from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from db.database import db_session
-from db.repositories import LeadRepository, EventRepository
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.ext.asyncio import AsyncSession
 import anthropic
 import json
 import logging
 from datetime import datetime
 
+from db.database import db_session
+from db.repositories import LeadRepository, EventRepository
+
 logger = logging.getLogger(__name__)
 
-# ── MODELS ────────────────────────────────────────────────────────────────────
+# ── MODELS ────────────────────────────────────────────────────────────────
 
 class LeadInput(BaseModel):
     lead_id: str
     customer_id: Optional[str] = None
-    source: str                          # "web", "broker", "phone", "email", "referral"
-    segment: str                         # "private", "sme", "enterprise", "fleet"
-    product_interest: str                # "liability", "property", "life", "fleet", "cyber"
-    # contact info
+    source: str
+    segment: str
+    product_interest: str
     company_name: Optional[str] = None
     contact_name: Optional[str] = None
     region: Optional[str] = None
-    # enriched context (loaded by n8n before calling agent)
     company_size: Optional[int] = None
     estimated_annual_premium: Optional[float] = None
-    interaction_level: Optional[int] = None   # 1–10 engagement score
+    interaction_level: Optional[int] = None
     existing_customer: bool = False
     competitor_offer: bool = False
     competitor_offer_deadline: Optional[str] = None
@@ -40,31 +39,31 @@ class LeadInput(BaseModel):
 
 class LeadResult(BaseModel):
     lead_id: str
-    score: int                           # 0–100
-    priority: str                        # "low", "medium", "high", "critical"
-    confidence: float                    # 0.0 – 1.0
-    recommended_route: str               # "sales_priority", "nurture", "automation_only", "fallback"
+    score: int
+    priority: str
+    confidence: float
+    recommended_route: str
     estimated_ltv: Optional[float]
     flags: List[dict]
     reasoning: str
     suggested_next_steps: List[str]
     processed_at: str
 
-# ── SYSTEM PROMPT ──────────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────
 
 LEAD_SYSTEM_PROMPT = """You are the Lead Intelligence Agent for INSURE.AI, an intelligent insurance automation platform operating in Switzerland.
 
 Your job is to analyze incoming leads and produce a structured JSON assessment with a score and routing decision.
 
-SCORING RULES (0–100):
+SCORING RULES (0-100):
 - Company size >= 50 employees: +25
-- Company size 20–49: +15
+- Company size 20-49: +15
 - Company size < 20: +5
 - Estimated annual premium >= CHF 50k: +25
-- Estimated annual premium CHF 10k–50k: +15
+- Estimated annual premium CHF 10k-50k: +15
 - Estimated annual premium < CHF 10k: +5
 - Interaction level >= 8: +20
-- Interaction level 5–7: +12
+- Interaction level 5-7: +12
 - Interaction level < 5: +5
 - Existing customer: +15
 - Competitor offer present: +10 (urgency signal)
@@ -72,22 +71,22 @@ SCORING RULES (0–100):
 
 ROUTING RULES:
 - "sales_priority": Score >= 70 OR competitor deadline within 7 days OR enterprise segment
-- "nurture": Score 40–69, no urgency signals
+- "nurture": Score 40-69, no urgency signals
 - "automation_only": Score < 40, private segment, low engagement
 - "fallback": Insufficient data to score reliably (confidence < 0.60)
 
 PRIORITY RULES:
 - "critical": Score >= 85 OR estimated premium >= CHF 100k
-- "high": Score 70–84 OR competitor offer present
-- "medium": Score 40–69
+- "high": Score 70-84 OR competitor offer present
+- "medium": Score 40-69
 - "low": Score < 40
 
 FLAGS to raise:
-- Competitor offer with deadline → danger
-- Enterprise lead without broker → warn
-- Missing key data (company size, premium estimate) → warn
-- High score but low interaction → info
-- Existing customer cross-sell opportunity → info
+- Competitor offer with deadline: danger
+- Enterprise lead without broker: warn
+- Missing key data (company size, premium estimate): warn
+- High score but low interaction: info
+- Existing customer cross-sell opportunity: info
 
 Always respond with valid JSON only. No markdown, no preamble.
 
@@ -105,7 +104,23 @@ JSON Schema:
   "suggested_next_steps": ["...", "..."]
 }"""
 
-# ── AGENT LOGIC ────────────────────────────────────────────────────────────────
+# ── ROUTE MAPPING ─────────────────────────────────────────────────────────
+
+ROUTE_MAP = {
+    "sales_priority":  "sales",
+    "nurture":         "nurturing",
+    "automation_only": "automation",
+    "fallback":        "no_action",
+}
+
+def _qualification(score: int) -> str:
+    if score >= 70:
+        return "qualified"
+    if score >= 40:
+        return "borderline"
+    return "unqualified"
+
+# ── AGENT LOGIC ───────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic()
 
@@ -171,25 +186,7 @@ async def run_lead_agent(lead: LeadInput) -> LeadResult:
         processed_at=datetime.utcnow().isoformat() + "Z"
     )
 
-
-# ── FASTAPI ROUTES ─────────────────────────────────────────────────────────────
-
-def register_routes(app: FastAPI):
-
-   ROUTE_MAP = {
-    "sales_priority":  "sales",
-    "nurture":         "nurturing",
-    "automation_only": "automation",
-    "fallback":        "no_action",
-}
-
-def _qualification(score: int) -> str:
-    if score >= 70:
-        return "qualified"
-    if score >= 40:
-        return "borderline"
-    return "unqualified"
-
+# ── FASTAPI ROUTES ────────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
@@ -198,8 +195,14 @@ def register_routes(app: FastAPI):
         lead: LeadInput,
         session: AsyncSession = Depends(db_session),
     ):
+        """
+        Lead Intelligence Agent.
+        Receives enriched lead data, returns score + routing decision.
+        Persists result to DB.
+        """
         try:
             result = await run_lead_agent(lead)
+
             final_route = ROUTE_MAP.get(result.recommended_route, "no_action")
 
             lead_repo  = LeadRepository(session)
@@ -247,7 +250,7 @@ def register_routes(app: FastAPI):
             )
 
             logger.info(
-                f"[Lead] {lead.lead_id} → {final_route} "
+                f"[Lead] {lead.lead_id} -> {final_route} "
                 f"(score={result.score}, confidence={result.confidence:.2f})"
             )
             return result
