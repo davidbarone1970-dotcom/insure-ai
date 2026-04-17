@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INSURE.AI — Human Review</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0b0d13;
+  --surface: #131620;
+  --surface2: #1a1e2e;
+  --surface3: #20253a;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --teal: #12c39a;
+  --teal-dim: rgba(18,195,154,0.12);
+  --teal-border: rgba(18,195,154,0.25);
+  --amber: #f5a623;
+  --amber-dim: rgba(245,166,35,0.12);
+  --blue: #4b8ef7;
+  --blue-dim: rgba(75,142,247,0.12);
+  --red: #f05454;
+  --red-dim: rgba(240,84,84,0.12);
+  --purple: #9b7ef7;
+  --purple-dim: rgba(155,126,247,0.12);
+  --green: #34d399;
+  --green-dim: rgba(52,211,153,0.12);
+  --text: #e8eaf0;
+  --text2: #8b90a7;
+  --text3: #555a72;
+  --font-ui: 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: relative;
+  z-index: 50;
+  flex-shrink: 0;
+}
+
+.logo { display: flex; align-items: center; gap: 10px; }
+
+.logo-mark {
+  width: 26px; height: 26px;
+  background: var(--teal);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.logo-mark svg { width: 14px; height: 14px; }
+
+.logo-text {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.logo-text span { color: var(--teal); }
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.nav-tab {
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 5px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.nav-tab:hover { color: var(--text); background: var(--surface3); }
+.nav-tab.active { color: var(--text); background: var(--surface3); border: 1px solid var(--border2); }
+.nav-tab.review-tab { color: var(--amber); }
+.nav-tab.review-tab.active { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,166,35,0.2); }
+
+.header-right { display: flex; align-items: center; gap: 12px; }
+
+.queue-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--amber-dim);
+  border: 1px solid rgba(245,166,35,0.2);
+  color: var(--amber);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.reviewer-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px 10px 3px 3px;
+}
+
+.reviewer-avatar {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--blue-dim);
+  border: 1px solid var(--blue);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px;
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.reviewer-name { font-size: 11px; color: var(--text2); }
+
+/* ── 3-PANEL LAYOUT ── */
+.workspace {
+  display: grid;
+  grid-template-columns: 280px 1fr 300px;
+  height: calc(100vh - 52px);
+  overflow: hidden;
+}
+
+/* ── LEFT: QUEUE ── */
+.queue-panel {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.queue-header {
+  padding: 14px 16px 0;
+  flex-shrink: 0;
+}
+
+.queue-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.queue-filters {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scrollbar-width: none;
+}
+
+.queue-filters::-webkit-scrollbar { display: none; }
+
+.qf-btn {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+}
+
+.qf-btn:hover { border-color: var(--border2); color: var(--text); }
+.qf-btn.active { background: var(--surface2); color: var(--text); border-color: var(--border2); }
+
+.queue-sort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sort-label { font-size: 10px; color: var(--text3); font-family: var(--font-mono); }
+
+.queue-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.queue-list::-webkit-scrollbar { width: 3px; }
+.queue-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.queue-item {
+  padding: 11px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+
+.queue-item:hover { background: var(--surface2); border-color: var(--border); }
+
+.queue-item.active {
+  background: var(--surface2);
+  border-color: var(--border2);
+}
+
+.queue-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%;
+  transform: translateY(-50%);
+  width: 2px; height: 60%;
+  background: var(--blue);
+  border-radius: 0 1px 1px 0;
+}
+
+.qi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.qi-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.urgency-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+
+.urgency-dot.high { background: var(--red); box-shadow: 0 0 5px var(--red); }
+.urgency-dot.medium { background: var(--amber); }
+.urgency-dot.low { background: var(--text3); }
+
+.qi-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.qi-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pipeline-badge {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.pipeline-badge.claim { background: var(--amber-dim); color: var(--amber); }
+.pipeline-badge.lead { background: var(--blue-dim); color: var(--blue); }
+.pipeline-badge.ret { background: var(--teal-dim); color: var(--teal); }
+.pipeline-badge.offer { background: var(--purple-dim); color: var(--purple); }
+
+.qi-time {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text3);
+}
+
+.qi-score {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text3);
+  margin-left: auto;
+}
+
+/* ── CENTER: DETAIL ── */
+.detail-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.detail-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.detail-id-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.detail-id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.detail-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.urgency-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.urgency-badge.high { background: var(--red-dim); color: var(--red); border: 1px solid rgba(240,84,84,0.2); }
+.urgency-badge.medium { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,166,35,0.2); }
+.urgency-badge.low { background: var(--surface2); color: var(--text3); border: 1px solid var(--border); }
+
+.detail-actions-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.detail-scroll::-webkit-scrollbar { width: 4px; }
+.detail-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.detail-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.detail-card.full { grid-column: 1 / -1; }
+
+.detail-card-title {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 12px;
+}
+
+.data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.data-row:last-child { border-bottom: none; }
+
+.data-label { font-size: 12px; color: var(--text2); }
+
+.data-val {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-align: right;
+}
+
+.data-val.highlight { color: var(--teal); }
+.data-val.warn { color: var(--amber); }
+.data-val.danger { color: var(--red); }
+
+/* CONFIDENCE METER */
+.confidence-wrap {
+  margin-bottom: 12px;
+}
+
+.confidence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.confidence-label { font-size: 12px; color: var(--text2); }
+
+.confidence-val {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.confidence-track {
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.confidence-desc {
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+/* FLAGS */
+.flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flag-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.flag-item.danger { background: var(--red-dim); border-color: rgba(240,84,84,0.15); }
+.flag-item.warn { background: var(--amber-dim); border-color: rgba(245,166,35,0.15); }
+.flag-item.info { background: var(--blue-dim); border-color: rgba(75,142,247,0.15); }
+
+.flag-icon {
+  font-size: 12px;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.flag-text { font-size: 12px; color: var(--text); }
+.flag-meta { font-size: 10px; color: var(--text3); font-family: var(--font-mono); margin-top: 1px; }
+
+/* AI REASONING */
+.ai-reasoning {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--purple);
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 12px;
+  color: var(--text2);
+  line-height: 1.7;
+}
+
+.ai-reasoning .ai-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--purple);
+  margin-bottom: 8px;
+  letter-spacing: 0.06em;
+}
+
+/* HISTORY TIMELINE */
+.history-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-item:last-child { border-bottom: none; }
+
+.history-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.history-text { font-size: 12px; color: var(--text2); line-height: 1.4; }
+.history-time { font-size: 10px; font-family: var(--font-mono); color: var(--text3); margin-top: 2px; }
+
+/* DECISION BAR */
+.decision-bar {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.decision-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.decision-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dec-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dec-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.dec-btn.approve {
+  background: var(--teal-dim);
+  border-color: var(--teal-border);
+  color: var(--teal);
+}
+
+.dec-btn.approve:hover { background: rgba(18,195,154,0.2); }
+
+.dec-btn.reject {
+  background: var(--red-dim);
+  border-color: rgba(240,84,84,0.25);
+  color: var(--red);
+}
+
+.dec-btn.reject:hover { background: rgba(240,84,84,0.2); }
+
+.dec-btn.escalate {
+  background: var(--amber-dim);
+  border-color: rgba(245,166,35,0.25);
+  color: var(--amber);
+}
+
+.dec-btn.escalate:hover { background: rgba(245,166,35,0.2); }
+
+.dec-btn.request {
+  background: var(--blue-dim);
+  border-color: rgba(75,142,247,0.25);
+  color: var(--blue);
+}
+
+.dec-btn.request:hover { background: rgba(75,142,247,0.2); }
+
+.dec-btn.muted {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text2);
+  margin-left: auto;
+}
+
+.dec-btn.muted:hover { border-color: var(--border2); color: var(--text); }
+
+.dec-note {
+  flex: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.dec-note::placeholder { color: var(--text3); }
+.dec-note:focus { border-color: var(--border2); }
+
+/* ── RIGHT: AUDIT ── */
+.audit-panel {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.audit-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.audit-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text3);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.audit-sub { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+
+.audit-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.audit-stat {
+  background: var(--surface);
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.audit-stat-val {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.audit-stat-label { font-size: 10px; color: var(--text3); }
+
+.audit-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.audit-list::-webkit-scrollbar { width: 3px; }
+.audit-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.audit-item {
+  padding: 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  background: var(--surface2);
+}
+
+.audit-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+
+.audit-item-id { font-family: var(--font-mono); font-size: 11px; color: var(--text2); }
+
+.decision-pill {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 3px;
+}
+
+.decision-pill.approved { background: var(--teal-dim); color: var(--teal); }
+.decision-pill.rejected { background: var(--red-dim); color: var(--red); }
+.decision-pill.escalated { background: var(--amber-dim); color: var(--amber); }
+.decision-pill.requested { background: var(--blue-dim); color: var(--blue); }
+
+.audit-item-desc { font-size: 11px; color: var(--text2); margin-bottom: 4px; line-height: 1.4; }
+.audit-item-meta { font-size: 10px; font-family: var(--font-mono); color: var(--text3); }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text3);
+}
+
+.empty-icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.empty-title { font-size: 13px; color: var(--text2); font-weight: 500; }
+.empty-sub { font-size: 11px; }
+
+/* TOAST */
+.toast {
+  position: fixed;
+  bottom: 20px; left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 200;
+  transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+  pointer-events: none;
+}
+
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast-dot { width: 8px; height: 8px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 16 16" fill="none">
+        <path d="M8 2L14 5V11L8 14L2 11V5L8 2Z" fill="#0b0d13"/>
+        <path d="M8 4L12 6.5V11.5L8 14L4 11.5V6.5L8 4Z" fill="rgba(255,255,255,0.2)"/>
+        <circle cx="8" cy="8" r="2" fill="white"/>
+      </svg>
+    </div>
+    <span class="logo-text">INSURE<span>.</span>AI</span>
+  </div>
+
+  <div class="header-center">
+    <div class="nav-tab">Operations</div>
+    <div class="nav-tab">Pipelines</div>
+    <div class="nav-tab review-tab active">Human Review</div>
+    <div class="nav-tab">Audit Trail</div>
+    <div class="nav-tab">Settings</div>
+  </div>
+
+  <div class="header-right">
+    <span id="dataSourceBadge" style="font-family:var(--font-mono);font-size:11px;color:var(--text3);">● DEMO</span>
+    <button onclick="loadQueue()" style="font-family:var(--font-mono);font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:3px 10px;border-radius:5px;cursor:pointer;">↻ Refresh</button>
+    <div class="queue-count" id="queueCountBadge">⏳ 0 in Queue</div>
+    <div class="reviewer-chip">
+      <div class="reviewer-avatar">MK</div>
+      <div class="reviewer-name">M. Keller</div>
+    </div>
+  </div>
+</header>
+
+<!-- 3-PANEL WORKSPACE -->
+<div class="workspace">
+
+  <!-- ── LEFT: QUEUE ── -->
+  <div class="queue-panel">
+    <div class="queue-header">
+      <div class="queue-title">Review Queue</div>
+      <div class="queue-filters" id="queueFilters">
+        <button class="qf-btn active" data-filter="all">Alle</button>
+        <button class="qf-btn" data-filter="claim">Claims</button>
+        <button class="qf-btn" data-filter="lead">Leads</button>
+        <button class="qf-btn" data-filter="ret">Retention</button>
+        <button class="qf-btn" data-filter="offer">Offers</button>
+      </div>
+    </div>
+    <div class="queue-sort">
+      <span class="sort-label">Sortiert nach Dringlichkeit</span>
+    </div>
+    <div class="queue-list" id="queueList"></div>
+  </div>
+
+  <!-- ── CENTER: DETAIL ── -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="3" width="14" height="14" rx="3" stroke="#555a72" stroke-width="1.5"/>
+          <path d="M7 10h6M7 7h4M7 13h3" stroke="#555a72" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="empty-title">Kein Element ausgewählt</div>
+      <div class="empty-sub">Element aus der Queue wählen</div>
+    </div>
+
+    <div id="detailContent" style="display:none;flex-direction:column;height:100%;">
+      <div class="detail-topbar">
+        <div>
+          <div class="detail-id-row">
+            <span class="detail-id" id="d-id">—</span>
+            <span class="pipeline-badge" id="d-badge">—</span>
+            <span class="urgency-badge" id="d-urgency">—</span>
+          </div>
+          <div class="detail-title" id="d-title">—</div>
+        </div>
+        <div class="detail-actions-top">
+          <span style="font-size:11px;color:var(--text3);font-family:var(--font-mono);" id="d-time">—</span>
+        </div>
+      </div>
+
+      <div class="detail-scroll" id="detailScroll"></div>
+
+      <div class="decision-bar">
+        <div class="decision-label">Entscheidung treffen</div>
+        <div class="decision-actions">
+          <button class="dec-btn approve" id="btnApprove">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3.5 3.5L12 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Approve
+          </button>
+          <button class="dec-btn reject" id="btnReject">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Reject
+          </button>
+          <button class="dec-btn escalate" id="btnEscalate">
+            <svg viewBox="0 0 14 14" fill="none"><path d="M7 2v7M4 5l3-3 3 3M3 12h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Eskalieren
+          </button>
+          <button class="dec-btn request" id="btnRequest">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M7 6v4M7 4v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Info anfordern
+          </button>
+          <input class="dec-note" id="decNote" placeholder="Notiz zur Entscheidung (optional)…">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: AUDIT ── -->
+  <div class="audit-panel">
+    <div class="audit-header">
+      <div class="audit-title">Session-Protokoll</div>
+      <div class="audit-sub" id="auditSub">0 Entscheidungen heute</div>
+    </div>
+    <div class="audit-stats">
+      <div class="audit-stat">
+        <div class="audit-stat-val" id="stat-approved" style="color:var(--teal);">0</div>
+        <div class="audit-stat-label">Approved</div>
+      </div>
+      <div class="audit-stat">
+        <div class="audit-stat-val" id="stat-rejected" style="color:var(--red);">0</div>
+        <div class="audit-stat-label">Rejected</div>
+      </div>
+      <div class="audit-stat">
+        <div class="audit-stat-val" id="stat-escalated" style="color:var(--amber);">0</div>
+        <div class="audit-stat-label">Eskaliert</div>
+      </div>
+    </div>
+    <div class="audit-list" id="auditList">
+      <div style="padding:20px 12px;text-align:center;">
+        <div style="font-size:11px;color:var(--text3);">Noch keine Entscheidungen<br>in dieser Session</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <div class="toast-dot" id="toast-dot"></div>
+  <span id="toast-text">—</span>
+</div>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────
+
+const QUEUE_DATA = [
+  {
+    id: 'C-9931', type: 'claim', urgency: 'high',
+    title: 'Brandschaden Liegenschaft — CHF 87.400',
+    time: 'vor 4 min',
+    aiConfidence: 0.62,
+    confidenceColor: '#f5a623',
+    customerName: 'Baumann & Partner AG',
+    customerValue: 'CHF 14.200 / Jahr',
+    customerSince: '2017',
+    policyId: 'POL-44821',
+    policyType: 'Gebäude- & Sachversicherung',
+    claimAmount: 'CHF 87.400',
+    claimType: 'Brandschaden',
+    previousClaims: '1 (2021, CHF 3.200)',
+    aiDecision: 'Manual Review empfohlen',
+    flags: [
+      { sev: 'danger', label: 'Schadenshöhe überschreitet Auto-Limit (CHF 50k)', detail: 'Schwellenwert: CHF 50.000' },
+      { sev: 'warn', label: 'Zweiter Schaden innerhalb 36 Monaten', detail: 'Policy-Regel: max. 1 Schaden / 3 Jahre' },
+      { sev: 'info', label: 'Gutachten liegt noch nicht vor', detail: 'Angefordert: 09:14 Uhr heute' }
+    ],
+    reasoning: 'Der Schaden von CHF 87.400 übersteigt das automatische Prozesslimit. Die Kombination aus Schadenshöhe, fehlendem Gutachten und dem Vorschaden von 2021 ergibt ein erhöhtes Risikoprofil. Ich empfehle manuelle Prüfung durch einen Senior Adjuster sowie Anforderung des vollständigen Gutachtens vor Auszahlung.',
+    history: [
+      { color: '#4b8ef7', text: 'Claim eingereicht via Webportal', time: '09:02' },
+      { color: '#9b7ef7', text: 'Claims Agent: Klassifizierung abgeschlossen (62% Konfidenz)', time: '09:04' },
+      { color: '#f5a623', text: 'Orchestrator: Route zu Human Review', time: '09:04' },
+      { color: '#555a72', text: 'Gutachten angefordert', time: '09:14' }
+    ]
+  },
+  {
+    id: 'L-2847', type: 'lead', urgency: 'high',
+    title: 'Enterprise-Lead — Kanton ZH, Flotte 240 Fzg',
+    time: 'vor 7 min',
+    aiConfidence: 0.71,
+    confidenceColor: '#f5a623',
+    customerName: 'Zürich Transport GmbH',
+    customerValue: 'Est. CHF 180.000 / Jahr',
+    customerSince: '—',
+    policyId: '—',
+    policyType: 'Flottenversicherung (Anfrage)',
+    claimAmount: '—',
+    claimType: '—',
+    previousClaims: '—',
+    leadSource: 'Broker-Kanal (Müller & Partner)',
+    segment: 'Enterprise / Fleet',
+    score: 84,
+    aiDecision: 'Senior Sales empfohlen',
+    flags: [
+      { sev: 'info', label: 'Hoher Potenzialwert (est. > CHF 150k p.a.)', detail: 'Score-Treiber: Flottengrösse, Segment' },
+      { sev: 'warn', label: 'Broker-Provision unklar — Klärung erforderlich', detail: 'Kein Rahmenvertrag mit Müller & Partner' },
+      { sev: 'info', label: 'Konkurrenzangebot vorhanden (Helvetia)', detail: 'Lead hat aktives Angebot bis 30.04' }
+    ],
+    reasoning: 'Der Lead zeigt sehr hohes Abschlusspotenzial durch Flottengrösse (240 Fahrzeuge) und Unternehmensgrösse. Score 84/100. Zeitkritisch: Konkurrenzangebot läuft am 30.04 ab. Ich empfehle direkte Zuweisung an Senior Sales mit Priorisierung innerhalb von 24h. Broker-Provision muss vor Erstkontakt geklärt werden.',
+    history: [
+      { color: '#4b8ef7', text: 'Lead eingegangen via Broker-Portal', time: '14:09' },
+      { color: '#9b7ef7', text: 'Lead Agent: Score 84, Segment Enterprise', time: '14:11' },
+      { color: '#f5a623', text: 'Orchestrator: Route zu Human Review (Score > 80 + Sonderfall)', time: '14:11' }
+    ]
+  },
+  {
+    id: 'C-9928', type: 'claim', urgency: 'high',
+    title: 'KFZ-Totalschaden — Betrugsverdacht',
+    time: 'vor 12 min',
+    aiConfidence: 0.88,
+    confidenceColor: '#f05454',
+    customerName: 'R. Meier',
+    customerValue: 'CHF 1.840 / Jahr',
+    customerSince: '2023',
+    policyId: 'POL-71204',
+    policyType: 'Vollkasko Fahrzeugversicherung',
+    claimAmount: 'CHF 28.500',
+    claimType: 'Totalschaden (KFZ)',
+    previousClaims: '2 (2023: CHF 4.100 / 2024: CHF 8.900)',
+    aiDecision: 'SIU-Eskalation empfohlen',
+    flags: [
+      { sev: 'danger', label: 'Betrugsmuster erkannt: 3 Schäden in 18 Monaten', detail: 'SIU-Schwellenwert überschritten' },
+      { sev: 'danger', label: 'Fahrzeugwert vs. Schadenshöhe inkonsistent', detail: 'Marktwert ca. CHF 19.000, Claim CHF 28.500' },
+      { sev: 'warn', label: 'Police seit < 12 Monaten aktiv', detail: 'Abschluss: März 2023' }
+    ],
+    reasoning: 'Hohe Betrugswahrscheinlichkeit (88%). Drei Schäden in 18 Monaten mit steigendem Betrag überschreiten das SIU-Trigger-Limit. Der Claimwert übersteigt den aktuellen Marktwert des Fahrzeugs signifikant. Direkte Eskalation zur Special Investigations Unit empfohlen. Keine Auszahlung vor Abschluss der SIU-Prüfung.',
+    history: [
+      { color: '#4b8ef7', text: 'Claim via Telefon eingereicht', time: '13:44' },
+      { color: '#9b7ef7', text: 'Claims Agent: Betrugsmuster-Score 0.88', time: '13:46' },
+      { color: '#f05454', text: 'Orchestrator: Direktroute SIU-Review', time: '13:46' }
+    ]
+  },
+  {
+    id: 'K-5512', type: 'ret', urgency: 'medium',
+    title: 'Churn-Risiko — Premium-Kunde, Score 0.84',
+    time: 'vor 18 min',
+    aiConfidence: 0.84,
+    confidenceColor: '#12c39a',
+    customerName: 'Dr. H. Zimmermann',
+    customerValue: 'CHF 9.400 / Jahr',
+    customerSince: '2011',
+    policyId: 'POL-18833 / POL-18834',
+    policyType: 'Lebens- & Hausratversicherung',
+    claimAmount: '—',
+    claimType: '—',
+    previousClaims: '0',
+    aiDecision: 'Priority-Call + massgeschneidertes Angebot',
+    flags: [
+      { sev: 'danger', label: 'Login-Aktivität: Vertragsdetails 4× geprüft (letzte 7 Tage)', detail: 'Signal: Kündigungsabsicht' },
+      { sev: 'warn', label: 'Konkurrenzanfrage erkannt (Digital Fingerprint)', detail: 'Vergleichsportal-Besuch 3× diese Woche' },
+      { sev: 'info', label: 'Jahrestag Police: 13 Jahre Treue', detail: 'Loyalitäts-Angebot möglich' }
+    ],
+    reasoning: 'Churn-Score 0.84 ist signifikant erhöht. Verhaltensdaten zeigen klare Absichtsignale (Vertragscheck, Vergleichsportal). Kunde ist 13-jähriger Stamm-Kunde mit sehr hohem LTV (CHF 9.4k/Jahr, Summe ~CHF 122k). ROI eines Retentions-Angebots ist sehr hoch. Empfehle Priority-Call durch Senior Account Manager innerhalb von 24h mit vorbereiteter Loyalitätsprämie.',
+    history: [
+      { color: '#12c39a', text: 'Retention-Trigger: Login-Anomalie erkannt', time: '13:31' },
+      { color: '#9b7ef7', text: 'Retention Agent: Churn-Score 0.84', time: '13:33' },
+      { color: '#f5a623', text: 'Orchestrator: Human Review (High-Value + Score > 0.8)', time: '13:33' }
+    ]
+  },
+  {
+    id: 'O-773', type: 'offer', urgency: 'medium',
+    title: 'Cross-Sell — Cyber-Versicherung KMU',
+    time: 'vor 22 min',
+    aiConfidence: 0.79,
+    confidenceColor: '#9b7ef7',
+    customerName: 'Meister Digital GmbH',
+    customerValue: 'CHF 3.200 / Jahr',
+    customerSince: '2020',
+    policyId: 'POL-62901',
+    policyType: 'KMU Betriebsversicherung',
+    claimAmount: '—',
+    claimType: '—',
+    previousClaims: '0',
+    offerProduct: 'Cyber-Risk-Versicherung Business',
+    offerValue: 'CHF 1.800 – 2.400 / Jahr',
+    aiDecision: 'Automated Offer — Human Approval erforderlich',
+    flags: [
+      { sev: 'info', label: 'Segment-Match: 87% ähnliche KMU haben abgeschlossen', detail: 'Basis: 340 vergleichbare Kunden' },
+      { sev: 'info', label: 'Unterdeckungsrisiko erkannt: kein Cyber-Schutz vorhanden', detail: 'Branche: IT-Dienstleistungen (Hochrisiko)' },
+      { sev: 'warn', label: 'Angebotswert über Automated-Limit (>CHF 1.5k)', detail: 'Human Approval Policy' }
+    ],
+    reasoning: 'Meister Digital GmbH ist ein IT-Dienstleister ohne Cyber-Versicherung — klassische Unterdeckungslücke. Churn-Risiko: niedrig (0.12). Cross-Sell-Score: 79%. Ähnliche KMU in gleichem Segment haben Cyber-Produkt zu 87% abgeschlossen. Angebotsvolumen überschreitet Automated-Limit, daher Human Approval erforderlich.',
+    history: [
+      { color: '#9b7ef7', text: 'Offer-Trigger: Segment-Analyse KMU-IT', time: '13:21' },
+      { color: '#9b7ef7', text: 'Offer Agent: Cyber-Produkt empfohlen (79%)', time: '13:23' },
+      { color: '#f5a623', text: 'Orchestrator: Approval erforderlich (> CHF 1.5k)', time: '13:23' }
+    ]
+  },
+  {
+    id: 'C-9925', type: 'claim', urgency: 'medium',
+    title: 'Wasserschaden — Konflikt Deckungsumfang',
+    time: 'vor 35 min',
+    aiConfidence: 0.67,
+    confidenceColor: '#f5a623',
+    customerName: 'Familie Brühlmann',
+    customerValue: 'CHF 2.100 / Jahr',
+    customerSince: '2019',
+    policyId: 'POL-55110',
+    policyType: 'Hausratversicherung',
+    claimAmount: 'CHF 11.800',
+    claimType: 'Wasserschaden (Leitungswasser)',
+    previousClaims: '0',
+    aiDecision: 'Deckungsklärung erforderlich',
+    flags: [
+      { sev: 'warn', label: 'Deckungsumfang unklar: Elementarschaden vs. Leitungswasser', detail: 'Klausel 4.2b vs. 5.1a strittig' },
+      { sev: 'info', label: 'Schadensfoto-Analyse: konsistent mit Angaben', detail: 'Keine visuellen Widersprüche' }
+    ],
+    reasoning: 'Konfidenz 67% aufgrund von Deckungsunklarheit. Schadensbilder sind plausibel, aber die Zuordnung zwischen Leitungswasser- und Elementarschaden ist vertraglich strittig. Manuelle Prüfung der Police-Klauseln 4.2b und 5.1a empfohlen.',
+    history: [
+      { color: '#4b8ef7', text: 'Claim via Webportal (mit Fotos)', time: '12:55' },
+      { color: '#9b7ef7', text: 'Claims Agent: Deckungskonflikt erkannt', time: '12:57' },
+      { color: '#f5a623', text: 'Route zu Human Review', time: '12:57' }
+    ]
+  },
+  {
+    id: 'L-2841', type: 'lead', urgency: 'low',
+    title: 'Inbound Lead — Privat, Krankentaggeld',
+    time: 'vor 1 Std',
+    aiConfidence: 0.55,
+    confidenceColor: '#555a72',
+    customerName: 'S. Hofmann',
+    customerValue: 'Est. CHF 800 / Jahr',
+    customerSince: '—',
+    policyId: '—',
+    policyType: 'Krankentaggeld (Anfrage)',
+    score: 41,
+    aiDecision: 'Nurturing vs. Sales unklar',
+    flags: [
+      { sev: 'warn', label: 'Score 41 — an Nurturing-Schwelle (40)', detail: 'Grenzfall: Sales oder Nurturing?' },
+      { sev: 'info', label: 'Selbstständig erwerbend — erhöhtes Underwriting-Risiko', detail: 'Branche: Freelance Design' }
+    ],
+    reasoning: 'Lead-Score 41 liegt genau an der Schwelle zwischen Nurturing (< 40) und Sales (≥ 40). Selbstständige Erwerbstätigkeit erhöht das Underwriting-Risiko bei Krankentaggeld. Empfehle menschliche Beurteilung: Direkt Sales oder erst Nurturing-Sequenz.',
+    history: [
+      { color: '#4b8ef7', text: 'Lead via Webformular', time: '13:08' },
+      { color: '#9b7ef7', text: 'Lead Agent: Score 41, Grenzfall', time: '13:09' },
+      { color: '#f5a623', text: 'Route zu Human Review (Grenzfall)', time: '13:09' }
+    ]
+  },
+  {
+    id: 'K-4890', type: 'ret', urgency: 'low',
+    title: 'Retention-Angebot — Segment Privat 55+',
+    time: 'vor 1 Std 20 min',
+    aiConfidence: 0.91,
+    confidenceColor: '#12c39a',
+    customerName: 'E. & P. Suter',
+    customerValue: 'CHF 5.600 / Jahr',
+    customerSince: '2008',
+    policyId: 'POL-22411',
+    policyType: 'Lebens- & Unfallversicherung',
+    aiDecision: 'Automatisches Angebot — Freigabe erforderlich',
+    flags: [
+      { sev: 'info', label: 'Retention-Score exzellent: 91% Verbleibswahrscheinlichkeit', detail: 'Kein akutes Churn-Risiko' },
+      { sev: 'info', label: 'Police-Verlängerung fällig: 01.06', detail: 'Proaktives Angebot empfohlen' }
+    ],
+    reasoning: 'Stabiler Langzeitkunde mit hoher Bindungsrate. Verlängerungsangebot proaktiv zu platzieren hat historisch 94% Erfolgsrate in diesem Segment. Empfehle Freigabe des automatischen Renewal-Angebots mit Treueprämie (3 Monate beitragsfrei).',
+    history: [
+      { color: '#12c39a', text: 'Retention-Trigger: 60 Tage vor Verlängerung', time: '11:48' },
+      { color: '#9b7ef7', text: 'Retention Agent: Score 0.91, Angebot generiert', time: '11:50' },
+      { color: '#f5a623', text: 'Human Approval (Treuebonus > Policy-Limit)', time: '11:50' }
+    ]
+  },
+  {
+    id: 'O-769', type: 'offer', urgency: 'low',
+    title: 'Upsell — Rechtsschutz zu Hausratpolice',
+    time: 'vor 2 Std',
+    aiConfidence: 0.73,
+    confidenceColor: '#9b7ef7',
+    customerName: 'T. Murer',
+    customerValue: 'CHF 1.100 / Jahr',
+    customerSince: '2022',
+    policyId: 'POL-80044',
+    policyType: 'Hausratversicherung',
+    offerProduct: 'Rechtsschutzversicherung Privat',
+    offerValue: 'CHF 380 / Jahr',
+    aiDecision: 'Automated Offer — Human Approval',
+    flags: [
+      { sev: 'info', label: 'Segment-Match: Junge Familien — 69% Abschlussrate', detail: 'Produktkombination Hausrat + Rechtsschutz' },
+      { sev: 'info', label: 'Empfehlung bei Verlängerung platzieren (demnächst)', detail: 'Verlängerung: 01.07' }
+    ],
+    reasoning: 'Standard-Cross-Sell-Opportunity. Junge Familien mit Hausrat-Police schliessen Rechtsschutz zu 69% ab wenn proaktiv angesprochen. Timing günstig vor Verlängerung. Approval erforderlich da zweites Angebot innerhalb 90 Tagen (Policy-Limit).',
+    history: [
+      { color: '#9b7ef7', text: 'Offer-Trigger: Cross-Sell-Analyse', time: '11:22' },
+      { color: '#9b7ef7', text: 'Offer Agent: Rechtsschutz empfohlen (73%)', time: '11:24' },
+      { color: '#f5a623', text: 'Approval: Zweites Angebot im Quartal', time: '11:24' }
+    ]
+  }
+];
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+
+const API_BASE = 'https://insure-ai-wql4.onrender.com';
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+
+let queue = [];
+let activeId = null;
+let currentFilter = 'all';
+let auditLog = [];
+let stats = { approved: 0, rejected: 0, escalated: 0, requested: 0 };
+let usingLiveData = false;
+
+// ── API FETCH ──────────────────────────────────────────────────────────────
+
+async function loadQueue() {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/review/queue`);
+    const data = await res.json();
+    if (data.queue && data.queue.length > 0) {
+      queue = data.queue.map(item => ({
+        id: item.id || item.event_id,
+        type: item.pipeline || item.type || 'claim',
+        urgency: item.urgency || (item.priority === 'high' ? 'high' : item.priority === 'medium' ? 'medium' : 'low'),
+        title: item.title || item.description || `${item.pipeline} #${item.id}`,
+        time: item.created_at ? `vor ${Math.round((Date.now() - new Date(item.created_at)) / 60000)} min` : '—',
+        aiConfidence: item.confidence || item.ai_confidence || 0.7,
+        customerName: item.customer_name || item.customer_id || '—',
+        customerValue: item.customer_value || '—',
+        customerSince: item.customer_since || '—',
+        policyId: item.policy_id || '—',
+        policyType: item.policy_type || '—',
+        claimAmount: item.claim_amount ? `CHF ${item.claim_amount.toLocaleString('de-CH')}` : '—',
+        claimType: item.claim_type || '—',
+        previousClaims: item.previous_claims || '—',
+        aiDecision: item.ai_recommendation || item.recommended_action || 'Manual Review',
+        flags: item.flags || [],
+        reasoning: item.reasoning || item.ai_reasoning || 'Keine AI-Analyse verfügbar.',
+        history: item.history || []
+      }));
+      usingLiveData = true;
+      document.getElementById('dataSourceBadge').textContent = '● LIVE';
+      document.getElementById('dataSourceBadge').style.color = 'var(--teal)';
+    } else {
+      // Fallback to demo data
+      queue = [...QUEUE_DATA];
+      usingLiveData = false;
+      document.getElementById('dataSourceBadge').textContent = '● DEMO';
+      document.getElementById('dataSourceBadge').style.color = 'var(--text3)';
+    }
+  } catch (e) {
+    queue = [...QUEUE_DATA];
+    usingLiveData = false;
+    document.getElementById('dataSourceBadge').textContent = '● DEMO';
+    document.getElementById('dataSourceBadge').style.color = 'var(--text3)';
+  }
+  renderQueue();
+  renderAudit();
+  if (queue.length > 0 && !activeId) {
+    setTimeout(() => selectItem(queue[0].id), 300);
+  }
+}
+
+// ── RENDER QUEUE ──────────────────────────────────────────────────────────
+
+function renderQueue() {
+  const list = document.getElementById('queueList');
+  const filtered = currentFilter === 'all' ? queue : queue.filter(i => i.type === currentFilter);
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:24px 12px;text-align:center;color:var(--text3);font-size:12px;">Keine offenen Elemente in dieser Kategorie</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(item => `
+    <div class="queue-item ${item.id === activeId ? 'active' : ''}" data-id="${item.id}">
+      <div class="qi-top">
+        <span class="qi-id">${item.id}</span>
+        <span class="urgency-dot ${item.urgency}"></span>
+      </div>
+      <div class="qi-title">${item.title}</div>
+      <div class="qi-meta">
+        <span class="pipeline-badge ${item.type}">${item.type.toUpperCase()}</span>
+        <span class="qi-time">${item.time}</span>
+        <span class="qi-score">${Math.round(item.aiConfidence * 100)}%</span>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.queue-item').forEach(el => {
+    el.addEventListener('click', () => selectItem(el.dataset.id));
+  });
+
+  document.getElementById('queueCountBadge').textContent = `⏳ ${queue.length} in Queue`;
+}
+
+// ── RENDER DETAIL ──────────────────────────────────────────────────────────
+
+function selectItem(id) {
+  activeId = id;
+  const item = queue.find(i => i.id === id);
+  if (!item) return;
+
+  document.getElementById('emptyState').style.display = 'none';
+  const dc = document.getElementById('detailContent');
+  dc.style.display = 'flex';
+
+  document.getElementById('d-id').textContent = item.id;
+  const badge = document.getElementById('d-badge');
+  badge.textContent = item.type.toUpperCase();
+  badge.className = `pipeline-badge ${item.type}`;
+  const urgency = document.getElementById('d-urgency');
+  urgency.textContent = item.urgency === 'high' ? '⬤ Hoch' : item.urgency === 'medium' ? '⬤ Mittel' : '⬤ Niedrig';
+  urgency.className = `urgency-badge ${item.urgency}`;
+  document.getElementById('d-title').textContent = item.title;
+  document.getElementById('d-time').textContent = item.time;
+
+  // Build detail content
+  const scroll = document.getElementById('detailScroll');
+
+  const confColor = item.aiConfidence >= 0.8 ? 'var(--teal)' : item.aiConfidence >= 0.65 ? 'var(--amber)' : 'var(--red)';
+  const confPct = Math.round(item.aiConfidence * 100);
+  const confLabel = item.aiConfidence >= 0.8 ? 'Hohe Konfidenz' : item.aiConfidence >= 0.65 ? 'Mittlere Konfidenz' : 'Niedrige Konfidenz — Review kritisch';
+
+  // Customer data rows
+  const rows = [
+    { label: 'Kunde / Antragsteller', val: item.customerName, cls: '' },
+    { label: 'Kundenwert', val: item.customerValue, cls: 'highlight' },
+    { label: 'Kunde seit', val: item.customerSince },
+    { label: 'Police-ID', val: item.policyId },
+    { label: 'Produkt', val: item.policyType },
+  ];
+
+  if (item.claimAmount && item.claimAmount !== '—') rows.push({ label: 'Schadenshöhe', val: item.claimAmount, cls: 'warn' });
+  if (item.claimType && item.claimType !== '—') rows.push({ label: 'Schadentyp', val: item.claimType });
+  if (item.previousClaims && item.previousClaims !== '—') rows.push({ label: 'Vorschäden', val: item.previousClaims });
+  if (item.leadSource) rows.push({ label: 'Lead-Quelle', val: item.leadSource });
+  if (item.segment) rows.push({ label: 'Segment', val: item.segment });
+  if (item.score) rows.push({ label: 'Lead-Score', val: `${item.score}/100`, cls: 'highlight' });
+  if (item.offerProduct) rows.push({ label: 'Empfohlenes Produkt', val: item.offerProduct });
+  if (item.offerValue) rows.push({ label: 'Angebotswert', val: item.offerValue });
+
+  scroll.innerHTML = `
+    <div class="detail-grid">
+
+      <div class="detail-card">
+        <div class="detail-card-title">Kundendaten</div>
+        ${rows.map(r => `
+          <div class="data-row">
+            <span class="data-label">${r.label}</span>
+            <span class="data-val ${r.cls || ''}">${r.val}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="detail-card">
+        <div class="detail-card-title">AI-Analyse</div>
+        <div class="confidence-wrap">
+          <div class="confidence-header">
+            <span class="confidence-label">Agent-Konfidenz</span>
+            <span class="confidence-val" style="color:${confColor};">${confPct}%</span>
+          </div>
+          <div class="confidence-track">
+            <div class="confidence-fill" style="width:${confPct}%;background:${confColor};"></div>
+          </div>
+          <div class="confidence-desc">${confLabel}</div>
+        </div>
+        <div class="data-row">
+          <span class="data-label">Agent-Empfehlung</span>
+          <span class="data-val" style="font-size:11px;">${item.aiDecision}</span>
+        </div>
+        <div class="data-row" style="border-bottom:none;">
+          <span class="data-label">Flags erkannt</span>
+          <span class="data-val warn">${item.flags.length} Hinweis${item.flags.length !== 1 ? 'e' : ''}</span>
+        </div>
+      </div>
+
+      <div class="detail-card full">
+        <div class="detail-card-title">Risiko-Flags & Hinweise</div>
+        <div class="flag-list">
+          ${item.flags.map(f => `
+            <div class="flag-item ${f.sev}">
+              <div class="flag-icon">${f.sev === 'danger' ? '◈' : f.sev === 'warn' ? '◇' : '○'}</div>
+              <div>
+                <div class="flag-text">${f.label}</div>
+                <div class="flag-meta">${f.detail}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="detail-card full">
+        <div class="detail-card-title">AI-Reasoning</div>
+        <div class="ai-reasoning">
+          <div class="ai-label">AGENT ANALYSIS</div>
+          ${item.reasoning}
+        </div>
+      </div>
+
+      <div class="detail-card full">
+        <div class="detail-card-title">Ereignis-Historie</div>
+        ${item.history.map(h => `
+          <div class="history-item">
+            <div class="history-dot" style="background:${h.color};"></div>
+            <div>
+              <div class="history-text">${h.text}</div>
+              <div class="history-time">${h.time} Uhr heute</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+    </div>
+  `;
+
+  renderQueue();
+}
+
+// ── DECISIONS ──────────────────────────────────────────────────────────────
+
+function makeDecision(type) {
+  if (!activeId) return;
+  const item = queue.find(i => i.id === activeId);
+  if (!item) return;
+
+  const note = document.getElementById('decNote').value.trim();
+  const now = new Date().toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+
+  const config = {
+    approve: { label: 'Approved', cls: 'approved', color: '#12c39a', stat: 'approved', toastColor: '#12c39a', msg: `${item.id} genehmigt` },
+    reject: { label: 'Rejected', cls: 'rejected', color: '#f05454', stat: 'rejected', toastColor: '#f05454', msg: `${item.id} abgelehnt` },
+    escalate: { label: 'Eskaliert', cls: 'escalated', color: '#f5a623', stat: 'escalated', toastColor: '#f5a623', msg: `${item.id} eskaliert` },
+    request: { label: 'Info angefordert', cls: 'requested', color: '#4b8ef7', stat: 'requested', toastColor: '#4b8ef7', msg: `Infoanfrage: ${item.id}` },
+  }[type];
+
+  // Update stats
+  stats[config.stat]++;
+  if (config.stat === 'requested') stats.requested = (stats.requested || 0) + 1;
+
+  // Add to audit
+  auditLog.unshift({
+    id: item.id,
+    type: item.type,
+    title: item.title,
+    decision: config.label,
+    decCls: config.cls,
+    note: note || '—',
+    time: now,
+    reviewer: 'M. Keller'
+  });
+
+  // Remove from queue
+  queue = queue.filter(i => i.id !== activeId);
+  activeId = null;
+  document.getElementById('decNote').value = '';
+
+  renderAudit();
+  renderQueue();
+
+  // Reset detail to empty state
+  document.getElementById('detailContent').style.display = 'none';
+  document.getElementById('emptyState').style.display = 'flex';
+
+  // Show toast
+  showToast(config.toastColor, config.msg);
+}
+
+// ── AUDIT ──────────────────────────────────────────────────────────────────
+
+function renderAudit() {
+  const total = stats.approved + stats.rejected + stats.escalated + (stats.requested || 0);
+  document.getElementById('auditSub').textContent = `${total} Entscheidung${total !== 1 ? 'en' : ''} heute`;
+  document.getElementById('stat-approved').textContent = stats.approved;
+  document.getElementById('stat-rejected').textContent = stats.rejected;
+  document.getElementById('stat-escalated').textContent = stats.escalated;
+
+  if (auditLog.length === 0) return;
+
+  document.getElementById('auditList').innerHTML = auditLog.map(entry => `
+    <div class="audit-item">
+      <div class="audit-item-top">
+        <span class="audit-item-id">${entry.id} · ${entry.type.toUpperCase()}</span>
+        <span class="decision-pill ${entry.decCls}">${entry.decision}</span>
+      </div>
+      <div class="audit-item-desc">${entry.title}</div>
+      <div class="audit-item-meta">${entry.time} · ${entry.reviewer}${entry.note !== '—' ? ' · "' + entry.note + '"' : ''}</div>
+    </div>
+  `).join('');
+}
+
+// ── TOAST ──────────────────────────────────────────────────────────────────
+
+function showToast(color, msg) {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-dot').style.background = color;
+  document.getElementById('toast-text').textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ── FILTER BUTTONS ──────────────────────────────────────────────────────────
+
+document.getElementById('queueFilters').addEventListener('click', e => {
+  if (!e.target.classList.contains('qf-btn')) return;
+  document.querySelectorAll('.qf-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  currentFilter = e.target.dataset.filter;
+  renderQueue();
+});
+
+// ── DECISION BUTTONS ────────────────────────────────────────────────────────
+
+document.getElementById('btnApprove').addEventListener('click', () => makeDecision('approve'));
+document.getElementById('btnReject').addEventListener('click', () => makeDecision('reject'));
+document.getElementById('btnEscalate').addEventListener('click', () => makeDecision('escalate'));
+document.getElementById('btnRequest').addEventListener('click', () => makeDecision('request'));
+
+// ── NAV TABS ─────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.nav-tab').forEach(t => {
+  t.addEventListener('click', e => {
+    document.querySelectorAll('.nav-tab').forEach(x => x.classList.remove('active'));
+    e.target.classList.add('active');
+  });
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+
+loadQueue();
+// Poll every 30 seconds for new items
+setInterval(loadQueue, 30000);
+</script>
+</body>
+</html>
