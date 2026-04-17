@@ -270,4 +270,442 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS kpi_today AS
   FROM offers, date_filter
   WHERE triggered_at::DATE = today;
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_today_pipeline ON kpi_today (pipeline);-- ============================================================
+-- INSURE.AI — Lead Pipeline Extension
+-- Append this to the bottom of db/schema.sql
+-- ============================================================
+
+-- ── LEADS ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS leads (
+  id                    UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
+  lead_id               VARCHAR(64)    UNIQUE NOT NULL,
+  customer_id           VARCHAR(64)    NOT NULL,
+  lead_source           VARCHAR(64),                        -- 'broker', 'web', 'referral', 'campaign'
+  segment               VARCHAR(64),                        -- 'privat', 'kmu', 'enterprise'
+  product_interest      VARCHAR(128),
+  submission_channel    VARCHAR(32),
+
+  -- Agent output
+  lead_score            SMALLINT,                           -- 0–100
+  priority              priority_type,
+  confidence            NUMERIC(4,3),
+  qualification         VARCHAR(32),                        -- 'qualified', 'borderline', 'unqualified'
+  estimated_annual_value NUMERIC(12,2),
+  competitor_offer      BOOLEAN        NOT NULL DEFAULT FALSE,
+  competitor_name       VARCHAR(64),
+  agent_reasoning       TEXT,
+  flags                 JSONB          NOT NULL DEFAULT '[]',
+
+  -- Orchestrator
+  recommended_route     VARCHAR(32),
+  final_route           route_type,
+  orchestrator_override BOOLEAN        NOT NULL DEFAULT FALSE,
+  override_reason       TEXT,
+
+  -- Review
+  review_decision       review_decision NOT NULL DEFAULT 'pending',
+  reviewer_id           VARCHAR(64),
+  reviewer_note         TEXT,
+  reviewed_at           TIMESTAMPTZ,
+
+  -- Outcome
+  converted             BOOLEAN        NOT NULL DEFAULT FALSE,
+  converted_at          TIMESTAMPTZ,
+  conversion_value      NUMERIC(12,2),
+
+  -- Timestamps
+  received_at           TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  agent_processed_at    TIMESTAMPTZ,
+  routed_at             TIMESTAMPTZ,
+
+  customer_snapshot     JSONB          NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_customer_id    ON leads (customer_id);
+CREATE INDEX IF NOT EXISTS idx_leads_final_route    ON leads (final_route);
+CREATE INDEX IF NOT EXISTS idx_leads_lead_score     ON leads (lead_score DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_received_at    ON leads (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_segment        ON leads (segment);
+CREATE INDEX IF NOT EXISTS idx_leads_high_value     ON leads (estimated_annual_value DESC)
+  WHERE estimated_annual_value IS NOT NULL;
+
+
+-- ── UPDATE hitl_queue VIEW (add leads) ───────────────────────────────────
+-- Drop and recreate to include the leads union branch.
+
+CREATE OR REPLACE VIEW hitl_queue AS
+SELECT *
+FROM (
+  -- Claims
+  SELECT
+    'claim'            AS entity_type,
+    id,
+    claim_id           AS entity_id,
+    customer_id,
+    priority::TEXT     AS urgency,
+    classification     AS subtype,
+    confidence,
+    fraud_score        AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    received_at        AS queued_at,
+    NULL::TIMESTAMPTZ  AS reviewed_at,
+    review_decision::TEXT AS decision
+  FROM claims
+  WHERE review_decision = 'pending'
+    AND final_route IN ('manual_review', 'escalation', 'siu_referral')
+
+  UNION ALL
+
+  -- Retention
+  SELECT
+    'retention'        AS entity_type,
+    id,
+    customer_id        AS entity_id,
+    customer_id,
+    churn_risk_level   AS urgency,
+    trigger_type       AS subtype,
+    confidence,
+    churn_score        AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    triggered_at       AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM retention_events
+  WHERE review_decision = 'pending'
+    AND final_route IN ('call_task')
+
+  UNION ALL
+
+  -- Offers
+  SELECT
+    'offer'            AS entity_type,
+    id,
+    offer_trigger_id   AS entity_id,
+    customer_id,
+    urgency,
+    recommended_product AS subtype,
+    confidence,
+    cross_sell_score   AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    triggered_at       AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM offers
+  WHERE review_decision = 'pending'
+    AND final_route IN ('sales_handoff')
+
+  UNION ALL
+
+  -- Leads (borderline scores routed to human review)
+  SELECT
+    'lead'             AS entity_type,
+    id,
+    lead_id            AS entity_id,
+    customer_id,
+    priority::TEXT     AS urgency,
+    product_interest   AS subtype,
+    confidence,
+    lead_score::NUMERIC AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    received_at        AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM leads
+  WHERE review_decision = 'pending'
+    AND final_route IN ('sales', 'nurturing')
+    AND qualification = 'borderline'
+
+) q
+ORDER BY
+  CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+  queued_at ASC;
+
+
+-- ── UPDATE kpi_today MATERIALIZED VIEW (add leads) ───────────────────────
+-- Supabase: DROP + recreate (ALTER MATERIALIZED VIEW not supported for UNION changes).
+
+DROP MATERIALIZED VIEW IF EXISTS kpi_today;
+
+CREATE MATERIALIZED VIEW kpi_today AS
+  WITH date_filter AS (SELECT NOW()::DATE AS today)
+
+  SELECT
+    'leads' AS pipeline,
+    COUNT(*) AS total,
+    SUM(CASE WHEN final_route = 'automation'  THEN 1 ELSE 0 END) AS automated,
+    SUM(CASE WHEN final_route = 'sales'       THEN 1 ELSE 0 END) AS manual,
+    SUM(CASE WHEN converted = TRUE            THEN 1 ELSE 0 END) AS escalated,
+    AVG(confidence)   AS avg_confidence,
+    AVG(lead_score)   AS avg_fraud_score          -- reused column, holds lead_score here
+  FROM leads, date_filter
+  WHERE received_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'claims' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'auto_process'  THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'manual_review' THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'siu_referral'  THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(fraud_score)
+  FROM claims, date_filter
+  WHERE received_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'retention' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'automated_campaign' THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'call_task'          THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'no_action'          THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(churn_score)
+  FROM retention_events, date_filter
+  WHERE triggered_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'offer' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'automated_offer'    THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'sales_handoff'      THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'nurturing_sequence' THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(cross_sell_score)
+  FROM offers, date_filter
+  WHERE triggered_at::DATE = today;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_today_pipeline ON kpi_today (pipeline);
+-- ============================================================
+-- INSURE.AI — Lead Pipeline Extension
+-- Append this to the bottom of db/schema.sql
+-- ============================================================
+
+-- ── LEADS ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS leads (
+  id                    UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
+  lead_id               VARCHAR(64)    UNIQUE NOT NULL,
+  customer_id           VARCHAR(64)    NOT NULL,
+  lead_source           VARCHAR(64),                        -- 'broker', 'web', 'referral', 'campaign'
+  segment               VARCHAR(64),                        -- 'privat', 'kmu', 'enterprise'
+  product_interest      VARCHAR(128),
+  submission_channel    VARCHAR(32),
+
+  -- Agent output
+  lead_score            SMALLINT,                           -- 0–100
+  priority              priority_type,
+  confidence            NUMERIC(4,3),
+  qualification         VARCHAR(32),                        -- 'qualified', 'borderline', 'unqualified'
+  estimated_annual_value NUMERIC(12,2),
+  competitor_offer      BOOLEAN        NOT NULL DEFAULT FALSE,
+  competitor_name       VARCHAR(64),
+  agent_reasoning       TEXT,
+  flags                 JSONB          NOT NULL DEFAULT '[]',
+
+  -- Orchestrator
+  recommended_route     VARCHAR(32),
+  final_route           route_type,
+  orchestrator_override BOOLEAN        NOT NULL DEFAULT FALSE,
+  override_reason       TEXT,
+
+  -- Review
+  review_decision       review_decision NOT NULL DEFAULT 'pending',
+  reviewer_id           VARCHAR(64),
+  reviewer_note         TEXT,
+  reviewed_at           TIMESTAMPTZ,
+
+  -- Outcome
+  converted             BOOLEAN        NOT NULL DEFAULT FALSE,
+  converted_at          TIMESTAMPTZ,
+  conversion_value      NUMERIC(12,2),
+
+  -- Timestamps
+  received_at           TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+  agent_processed_at    TIMESTAMPTZ,
+  routed_at             TIMESTAMPTZ,
+
+  customer_snapshot     JSONB          NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_customer_id    ON leads (customer_id);
+CREATE INDEX IF NOT EXISTS idx_leads_final_route    ON leads (final_route);
+CREATE INDEX IF NOT EXISTS idx_leads_lead_score     ON leads (lead_score DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_received_at    ON leads (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_segment        ON leads (segment);
+CREATE INDEX IF NOT EXISTS idx_leads_high_value     ON leads (estimated_annual_value DESC)
+  WHERE estimated_annual_value IS NOT NULL;
+
+
+-- ── UPDATE hitl_queue VIEW (add leads) ───────────────────────────────────
+-- Drop and recreate to include the leads union branch.
+
+DROP VIEW IF EXISTS hitl_queue;
+CREATE VIEW hitl_queue AS
+SELECT *
+FROM (
+  -- Claims
+  SELECT
+    'claim'            AS entity_type,
+    id,
+    claim_id           AS entity_id,
+    customer_id,
+    priority::TEXT     AS urgency,
+    classification     AS subtype,
+    confidence,
+    fraud_score        AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    received_at        AS queued_at,
+    NULL::TIMESTAMPTZ  AS reviewed_at,
+    review_decision::TEXT AS decision
+  FROM claims
+  WHERE review_decision = 'pending'
+    AND final_route IN ('manual_review', 'escalation', 'siu_referral')
+
+  UNION ALL
+
+  -- Retention
+  SELECT
+    'retention'        AS entity_type,
+    id,
+    customer_id        AS entity_id,
+    customer_id,
+    churn_risk_level   AS urgency,
+    trigger_type       AS subtype,
+    confidence,
+    churn_score        AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    triggered_at       AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM retention_events
+  WHERE review_decision = 'pending'
+    AND final_route IN ('call_task')
+
+  UNION ALL
+
+  -- Offers
+  SELECT
+    'offer'            AS entity_type,
+    id,
+    offer_trigger_id   AS entity_id,
+    customer_id,
+    urgency,
+    recommended_product AS subtype,
+    confidence,
+    cross_sell_score   AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    triggered_at       AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM offers
+  WHERE review_decision = 'pending'
+    AND final_route IN ('sales_handoff')
+
+  UNION ALL
+
+  -- Leads (borderline scores routed to human review)
+  SELECT
+    'lead'             AS entity_type,
+    id,
+    lead_id            AS entity_id,
+    customer_id,
+    priority::TEXT     AS urgency,
+    product_interest   AS subtype,
+    confidence,
+    CAST(lead_score AS NUMERIC(4,3)) AS risk_score,
+    final_route::TEXT  AS route,
+    agent_reasoning    AS reasoning,
+    flags,
+    received_at        AS queued_at,
+    reviewed_at,
+    review_decision::TEXT AS decision
+  FROM leads
+  WHERE review_decision = 'pending'
+    AND final_route IN ('sales', 'nurturing')
+    AND qualification = 'borderline'
+
+) q
+ORDER BY
+  CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+  queued_at ASC;
+
+
+-- ── UPDATE kpi_today MATERIALIZED VIEW (add leads) ───────────────────────
+-- Supabase: DROP + recreate (ALTER MATERIALIZED VIEW not supported for UNION changes).
+
+DROP MATERIALIZED VIEW IF EXISTS kpi_today;
+
+CREATE MATERIALIZED VIEW kpi_today AS
+  WITH date_filter AS (SELECT NOW()::DATE AS today)
+
+  SELECT
+    'leads' AS pipeline,
+    COUNT(*) AS total,
+    SUM(CASE WHEN final_route = 'automation'  THEN 1 ELSE 0 END) AS automated,
+    SUM(CASE WHEN final_route = 'sales'       THEN 1 ELSE 0 END) AS manual,
+    SUM(CASE WHEN converted = TRUE            THEN 1 ELSE 0 END) AS escalated,
+    AVG(confidence)   AS avg_confidence,
+    AVG(lead_score)   AS avg_fraud_score          -- reused column, holds lead_score here
+  FROM leads, date_filter
+  WHERE received_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'claims' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'auto_process'  THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'manual_review' THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'siu_referral'  THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(fraud_score)
+  FROM claims, date_filter
+  WHERE received_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'retention' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'automated_campaign' THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'call_task'          THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'no_action'          THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(churn_score)
+  FROM retention_events, date_filter
+  WHERE triggered_at::DATE = today
+
+  UNION ALL
+
+  SELECT
+    'offer' AS pipeline,
+    COUNT(*),
+    SUM(CASE WHEN final_route = 'automated_offer'    THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'sales_handoff'      THEN 1 ELSE 0 END),
+    SUM(CASE WHEN final_route = 'nurturing_sequence' THEN 1 ELSE 0 END),
+    AVG(confidence),
+    AVG(cross_sell_score)
+  FROM offers, date_filter
+  WHERE triggered_at::DATE = today;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_today_pipeline ON kpi_today (pipeline);

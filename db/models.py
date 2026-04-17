@@ -190,3 +190,52 @@ class Offer(Base):
     routed_at:              Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     customer_snapshot:      Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)
+# ── LEADS ──────────────────────────────────────────────────────────────────
+# Paste this class into db/models.py, after the Offer class.
+# No new imports needed — all are already at the top of models.py.
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id:                    Mapped[uuid.UUID]        = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lead_id:               Mapped[str]              = mapped_column(String(64), unique=True, nullable=False)
+    customer_id:           Mapped[str]              = mapped_column(String(64), nullable=False)
+    lead_source:           Mapped[Optional[str]]    = mapped_column(String(64))
+    segment:               Mapped[Optional[str]]    = mapped_column(String(64))
+    product_interest:      Mapped[Optional[str]]    = mapped_column(String(128))
+    submission_channel:    Mapped[Optional[str]]    = mapped_column(String(32))
+
+    # Agent output
+    lead_score:            Mapped[Optional[int]]    = mapped_column(SmallInteger)
+    priority:              Mapped[Optional[str]]    = mapped_column(PRIORITY_ENUM)
+    confidence:            Mapped[Optional[float]]  = mapped_column(Numeric(4, 3))
+    qualification:         Mapped[Optional[str]]    = mapped_column(String(32))
+    estimated_annual_value:Mapped[Optional[float]]  = mapped_column(Numeric(12, 2))
+    competitor_offer:      Mapped[bool]             = mapped_column(Boolean, nullable=False, default=False)
+    competitor_name:       Mapped[Optional[str]]    = mapped_column(String(64))
+    agent_reasoning:       Mapped[Optional[str]]    = mapped_column(Text)
+    flags:                 Mapped[dict]             = mapped_column(JSONB, nullable=False, default=list)
+
+    # Orchestrator
+    recommended_route:     Mapped[Optional[str]]    = mapped_column(String(32))
+    final_route:           Mapped[Optional[str]]    = mapped_column(ROUTE_ENUM)
+    orchestrator_override: Mapped[bool]             = mapped_column(Boolean, nullable=False, default=False)
+    override_reason:       Mapped[Optional[str]]    = mapped_column(Text)
+
+    # Review
+    review_decision:       Mapped[str]              = mapped_column(REVIEW_DECISION_ENUM, nullable=False, default='pending')
+    reviewer_id:           Mapped[Optional[str]]    = mapped_column(String(64))
+    reviewer_note:         Mapped[Optional[str]]    = mapped_column(Text)
+    reviewed_at:           Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Outcome
+    converted:             Mapped[bool]             = mapped_column(Boolean, nullable=False, default=False)
+    converted_at:          Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    conversion_value:      Mapped[Optional[float]]  = mapped_column(Numeric(12, 2))
+
+    # Timestamps
+    received_at:           Mapped[datetime]         = mapped_column(DateTime(timezone=True), server_default=func.now())
+    agent_processed_at:    Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    routed_at:             Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    customer_snapshot:     Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)

@@ -3,7 +3,10 @@ INSURE.AI — Lead Intelligence Agent
 FastAPI endpoint: POST /agent/lead
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from db.database import db_session
+from db.repositories import LeadRepository, EventRepository
 from pydantic import BaseModel
 from typing import Optional, List
 import anthropic
@@ -173,19 +176,82 @@ async def run_lead_agent(lead: LeadInput) -> LeadResult:
 
 def register_routes(app: FastAPI):
 
+   ROUTE_MAP = {
+    "sales_priority":  "sales",
+    "nurture":         "nurturing",
+    "automation_only": "automation",
+    "fallback":        "no_action",
+}
+
+def _qualification(score: int) -> str:
+    if score >= 70:
+        return "qualified"
+    if score >= 40:
+        return "borderline"
+    return "unqualified"
+
+
+def register_routes(app: FastAPI):
+
     @app.post("/agent/lead", response_model=LeadResult, tags=["Agents"])
-    async def assess_lead(lead: LeadInput):
-        """
-        Lead Intelligence Agent.
-        Receives enriched lead data, returns score + routing decision.
-        """
+    async def assess_lead(
+        lead: LeadInput,
+        session: AsyncSession = Depends(db_session),
+    ):
         try:
             result = await run_lead_agent(lead)
+            final_route = ROUTE_MAP.get(result.recommended_route, "no_action")
+
+            lead_repo  = LeadRepository(session)
+            event_repo = EventRepository(session)
+
+            await lead_repo.create({
+                "lead_id":                lead.lead_id,
+                "customer_id":            lead.customer_id or lead.lead_id,
+                "lead_source":            lead.source,
+                "segment":                lead.segment,
+                "product_interest":       lead.product_interest,
+                "submission_channel":     lead.source,
+                "lead_score":             result.score,
+                "priority":               result.priority,
+                "confidence":             result.confidence,
+                "qualification":          _qualification(result.score),
+                "estimated_annual_value": lead.estimated_annual_premium,
+                "competitor_offer":       lead.competitor_offer,
+                "competitor_name":        None,
+                "agent_reasoning":        result.reasoning,
+                "flags":                  result.flags,
+                "recommended_route":      result.recommended_route,
+                "final_route":            final_route,
+                "customer_snapshot": {
+                    "company_name":      lead.company_name,
+                    "contact_name":      lead.contact_name,
+                    "region":            lead.region,
+                    "company_size":      lead.company_size,
+                    "broker_id":         lead.broker_id,
+                    "existing_customer": lead.existing_customer,
+                },
+            })
+
+            await event_repo.log(
+                pipeline=    "lead",
+                entity_id=   lead.lead_id,
+                entity_type= "lead",
+                event_type=  "agent_processed",
+                payload={
+                    "score":      result.score,
+                    "route":      final_route,
+                    "priority":   result.priority,
+                    "confidence": result.confidence,
+                },
+            )
+
             logger.info(
-                f"[Lead] {lead.lead_id} → {result.recommended_route} "
+                f"[Lead] {lead.lead_id} → {final_route} "
                 f"(score={result.score}, confidence={result.confidence:.2f})"
             )
             return result
+
         except Exception as e:
             logger.error(f"[Lead] Error processing {lead.lead_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
