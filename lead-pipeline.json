@@ -1,0 +1,197 @@
+{
+  "name": "INSURE.AI — Lead Intelligence Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "insure-ai-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "insure-ai-lead"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize incoming lead data from any source\n// (web form, CRM, broker portal, etc.)\nconst body = $input.first().json.body || $input.first().json;\n\nreturn [{\n  json: {\n    customer_id:   body.customer_id  || body.email || `LEAD-${Date.now()}`,\n    first_name:    body.first_name   || body.name?.split(' ')[0] || '',\n    last_name:     body.last_name    || body.name?.split(' ')[1] || '',\n    email:         body.email        || '',\n    phone:         body.phone        || '',\n    segment:       body.segment      || body.company_size || 'Privat',\n    lead_source:   body.source       || body.channel || 'web',\n    product_interest: body.product   || body.interest || 'Unbekannt',\n    company:       body.company      || '',\n    annual_revenue: body.revenue     || null,\n    employee_count: body.employees   || null,\n    notes:         body.message      || '',\n    received_at:   new Date().toISOString()\n  }\n}];"
+      },
+      "id": "normalize",
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate required fields before sending to agent\nconst lead = $input.first().json;\nconst errors = [];\n\nif (!lead.customer_id) errors.push('customer_id missing');\nif (!lead.email && !lead.phone) errors.push('no contact info');\nif (!lead.product_interest) errors.push('no product interest');\n\nreturn [{\n  json: {\n    ...lead,\n    valid: errors.length === 0,\n    validation_errors: errors\n  }\n}];"
+      },
+      "id": "validate",
+      "name": "Validate Lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.valid}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-valid",
+      "name": "Is Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/ai/lead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=",
+              "value": "={{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "call-agent",
+      "name": "Call Lead Intelligence Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200],
+      "notes": "POST to your FastAPI /ai/lead endpoint that calls Claude.\nExpects response: { score, segment, reasoning, recommended_route, confidence }"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse agent response and determine routing\nconst agent = $input.first().json;\nconst lead  = $('Validate Lead').first().json;\n\nconst score = agent.score ?? 0;\nconst confidence = agent.confidence ?? 0.5;\n\n// Business rule: enterprise leads always get human review\nconst isEnterprise = lead.segment?.toLowerCase().includes('enterprise') ||\n                     (lead.employee_count && lead.employee_count > 100);\n\nlet route;\nif (isEnterprise || score >= 80) {\n  route = 'human_review';\n} else if (score >= 40) {\n  route = 'automation';    // Sales sequence\n} else {\n  route = 'automation';    // Nurturing sequence\n}\n\n// Override: low confidence always needs human check\nif (confidence < 0.5) route = 'human_review';\n\nconst urgency = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';\n\nreturn [{\n  json: {\n    // Original lead data\n    ...lead,\n    // Agent output\n    lead_score:  score,\n    segment:     agent.segment || lead.segment,\n    confidence:  confidence,\n    reasoning:   agent.reasoning || '',\n    // Routing decision\n    route:       route,\n    urgency:     urgency,\n    // Webhook payload fields\n    title:  `Lead ${score >= 70 ? 'Sales' : score >= 40 ? 'Nurturing' : 'Abgelehnt'} — Score ${score}`,\n    detail: `${lead.segment || 'Privat'} · ${lead.lead_source} · ${lead.product_interest}`,\n    agent_latency_ms: agent.latency_ms || null\n  }\n}];"
+      },
+      "id": "orchestrate",
+      "name": "Apply Orchestrator Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/webhooks/lead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{{ $execution.id }}\",\n  \"customer_id\": \"{{ $json.customer_id }}\",\n  \"pipeline\": \"lead\",\n  \"route\": \"{{ $json.route }}\",\n  \"confidence\": {{ $json.confidence }},\n  \"urgency\": \"{{ $json.urgency }}\",\n  \"title\": \"{{ $json.title }}\",\n  \"detail\": \"{{ $json.detail }}\",\n  \"lead_score\": {{ $json.lead_score }},\n  \"segment\": \"{{ $json.segment }}\",\n  \"lead_source\": \"{{ $json.lead_source }}\",\n  \"estimated_value_chf\": {{ $json.estimated_value_chf || null }},\n  \"agent_latency_ms\": {{ $json.agent_latency_ms || null }}\n}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "post-webhook",
+      "name": "POST → FastAPI /webhooks/lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/webhooks/orchestrator",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"ORC-{{ $execution.id }}\",\n  \"pipeline\": \"lead\",\n  \"route\": \"{{ $json.route }}\",\n  \"confidence\": {{ $json.confidence }},\n  \"agent_latency_ms\": {{ $json.agent_latency_ms || null }}\n}",
+        "options": {}
+      },
+      "id": "post-orchestrator",
+      "name": "POST → FastAPI /webhooks/orchestrator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"processed\", \"event_id\": \"{{ $('POST → FastAPI /webhooks/lead').first().json.event_id }}\" }"
+      },
+      "id": "respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"rejected\", \"reason\": \"validation_failed\", \"errors\": {{ JSON.stringify($json.validation_errors) }} }"
+      },
+      "id": "respond-invalid",
+      "name": "Respond: Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    }
+  ],
+  "connections": {
+    "Webhook: New Lead": {
+      "main": [[ { "node": "Normalize Lead Data", "type": "main", "index": 0 } ]]
+    },
+    "Normalize Lead Data": {
+      "main": [[ { "node": "Validate Lead", "type": "main", "index": 0 } ]]
+    },
+    "Validate Lead": {
+      "main": [[ { "node": "Is Valid?", "type": "main", "index": 0 } ]]
+    },
+    "Is Valid?": {
+      "main": [
+        [ { "node": "Call Lead Intelligence Agent", "type": "main", "index": 0 } ],
+        [ { "node": "Respond: Invalid", "type": "main", "index": 0 } ]
+      ]
+    },
+    "Call Lead Intelligence Agent": {
+      "main": [[ { "node": "Apply Orchestrator Logic", "type": "main", "index": 0 } ]]
+    },
+    "Apply Orchestrator Logic": {
+      "main": [[ { "node": "POST → FastAPI /webhooks/lead", "type": "main", "index": 0 } ]]
+    },
+    "POST → FastAPI /webhooks/lead": {
+      "main": [[ { "node": "POST → FastAPI /webhooks/orchestrator", "type": "main", "index": 0 } ]]
+    },
+    "POST → FastAPI /webhooks/orchestrator": {
+      "main": [[ { "node": "Respond to Webhook", "type": "main", "index": 0 } ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["insure.ai", "lead", "webhook"],
+  "meta": {
+    "instanceId": "insure-ai"
+  }
+}

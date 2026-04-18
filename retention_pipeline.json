@@ -1,0 +1,255 @@
+{
+  "name": "INSURE.AI — Retention Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retention/trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2a3b4c5d-0001-0001-0001-000000000001",
+      "name": "Trigger: Retention Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "insure-ai-retention-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate retention trigger payload\nconst body = $input.first().json;\n\nconst required = ['customer_id', 'trigger_type'];\nconst missing = required.filter(f => !body[f]);\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\nconst validTriggers = [\n  'login_anomaly', 'portal_activity', 'renewal_upcoming',\n  'competitor_signal', 'support_contact', 'payment_late', 'manual'\n];\n\nif (!validTriggers.includes(body.trigger_type)) {\n  throw new Error(`Unknown trigger_type: ${body.trigger_type}. Valid: ${validTriggers.join(', ')}`);\n}\n\nreturn [{\n  json: {\n    customer_id: body.customer_id,\n    trigger_type: body.trigger_type,\n    trigger_detail: body.trigger_detail || null,\n    triggered_at: new Date().toISOString(),\n    pipeline: 'retention'\n  }\n}];"
+      },
+      "id": "2a3b4c5d-0002-0002-0002-000000000002",
+      "name": "Validate Trigger",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CRM_BASE_URL }}/api/v1/customers/{{ $json.customer_id }}/full-profile",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "2a3b4c5d-0003-0003-0003-000000000003",
+      "name": "Load Full Customer Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CRM_BASE_URL }}/api/v1/customers/{{ $json.customer_id }}/behavior?days=30",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "2a3b4c5d-0004-0004-0004-000000000004",
+      "name": "Load Behavioral Signals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all customer data into retention agent input\nconst trigger = $('Validate Trigger').first().json;\nconst profile = $('Load Full Customer Profile').first().json || {};\nconst behavior = $('Load Behavioral Signals').first().json || {};\n\nconst enriched = {\n  customer_id: trigger.customer_id,\n  trigger_type: trigger.trigger_type,\n  trigger_detail: trigger.trigger_detail,\n\n  // Profile\n  customer_name: profile.full_name || null,\n  segment: profile.segment || null,\n  customer_since_years: profile.years_as_customer || null,\n  annual_premium: profile.total_annual_premium || null,\n  policy_count: profile.active_policy_count || null,\n  policy_types: profile.policy_types || [],\n  last_claim_months_ago: profile.last_claim_months_ago || null,\n  total_claims_ever: profile.total_claims_count || null,\n  nps_score: profile.nps_score || null,\n  renewal_due_days: profile.next_renewal_days || null,\n  customer_ltv: profile.ltv_estimate || null,\n\n  // Behavioral\n  portal_logins: behavior.portal_logins_30d || null,\n  contract_views: behavior.contract_page_views_30d || null,\n  competitor_portal_visits: behavior.competitor_visits_30d || null,\n  support_contacts: behavior.support_contacts_30d || null,\n  email_open_rate: behavior.email_open_rate_30d || null\n};\n\nreturn [{ json: enriched }];"
+      },
+      "id": "2a3b4c5d-0005-0005-0005-000000000005",
+      "name": "Build Agent Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_BASE_URL }}/agent/retention",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "2a3b4c5d-0006-0006-0006-000000000006",
+      "name": "Call Retention Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Orchestrator: apply business rules on top of agent result\nconst agent = $json;\nconst context = $('Build Agent Context').first().json;\n\nlet finalRoute = agent.recommended_route;\nlet overrideReason = null;\n\n// Rule 1: VIP customer (LTV > CHF 50k) always gets call task regardless of score\nif (context.customer_ltv > 50000 && finalRoute !== 'call_task' && agent.churn_score >= 0.30) {\n  finalRoute = 'call_task';\n  overrideReason = `High-value customer (LTV CHF ${context.customer_ltv.toLocaleString()}) — escalated to call task`;\n}\n\n// Rule 2: Critical churn risk with < 30 days to renewal always gets offer\nif (agent.churn_risk_level === 'critical' && context.renewal_due_days <= 30) {\n  // Keep call_task if already set, but ensure offer is also generated\n  overrideReason = overrideReason || 'Critical churn + renewal < 30 days — dual action';\n}\n\n// Rule 3: No-action is only valid if churn_score < 0.20 AND no renewal < 45 days\nif (finalRoute === 'no_action' && context.renewal_due_days <= 45) {\n  finalRoute = 'automated_campaign';\n  overrideReason = 'Renewal approaching — automated campaign triggered regardless of churn score';\n}\n\nreturn [{\n  json: {\n    ...agent,\n    final_route: finalRoute,\n    orchestrator_override: finalRoute !== agent.recommended_route,\n    override_reason: overrideReason,\n    orchestrated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "2a3b4c5d-0007-0007-0007-000000000007",
+      "name": "Apply Orchestrator Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "route-call",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "call_task",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "2a3b4c5d-0008-0008-0008-000000000008",
+      "name": "Route: Call Task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1750, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "route-offer",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "generate_offer",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "2a3b4c5d-0009-0009-0009-000000000009",
+      "name": "Route: Offer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CALL TASK: Create priority call task in CRM\nconst data = $json;\nreturn [{\n  json: {\n    action: 'call_task',\n    customer_id: data.customer_id,\n    priority: data.priority_score > 70 ? 'HIGH' : 'MEDIUM',\n    churn_score: data.churn_score,\n    churn_risk_level: data.churn_risk_level,\n    offer_type: data.offer_type,\n    offer_suggestion: data.offer_value_suggestion,\n    reasoning_summary: data.reasoning,\n    flags: data.flags,\n    assign_to: data.priority_score > 80 ? 'senior_account_manager' : 'account_manager',\n    due_within_hours: data.churn_risk_level === 'critical' ? 4 : 24,\n    message: `Priority call required: Customer ${data.customer_id}, churn score ${data.churn_score.toFixed(2)}`,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "2a3b4c5d-0010-0010-0010-000000000010",
+      "name": "→ Create Call Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GENERATE OFFER: Trigger Offer Pipeline via webhook\nconst data = $json;\nreturn [{\n  json: {\n    action: 'generate_offer',\n    customer_id: data.customer_id,\n    source_pipeline: 'retention',\n    churn_score: data.churn_score,\n    offer_type_hint: data.offer_type,\n    offer_value_suggestion: data.offer_value_suggestion,\n    campaign_segment: data.campaign_segment,\n    urgency: data.churn_risk_level === 'critical' ? 'high' : 'medium',\n    message: `Offer generation triggered for ${data.customer_id} (retention)`,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "2a3b4c5d-0011-0011-0011-000000000011",
+      "name": "→ Generate Offer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AUTOMATED CAMPAIGN: Trigger email/push campaign\nconst data = $json;\nreturn [{\n  json: {\n    action: 'automated_campaign',\n    customer_id: data.customer_id,\n    campaign_segment: data.campaign_segment || 'standard_retention',\n    churn_score: data.churn_score,\n    message: `Automated retention campaign triggered for ${data.customer_id}`,\n    channel: 'email',\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "2a3b4c5d-0012-0012-0012-000000000012",
+      "name": "→ Automated Campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 600]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AUDIT_BASE_URL }}/api/v1/audit/log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline\": \"retention\",\n  \"customer_id\": \"{{ $json.customer_id }}\",\n  \"action\": \"{{ $json.action }}\",\n  \"churn_score\": {{ $('Apply Orchestrator Logic').first().json.churn_score }},\n  \"churn_risk_level\": \"{{ $('Apply Orchestrator Logic').first().json.churn_risk_level }}\",\n  \"final_route\": \"{{ $('Apply Orchestrator Logic').first().json.final_route }}\",\n  \"orchestrator_override\": {{ $('Apply Orchestrator Logic').first().json.orchestrator_override }},\n  \"logged_at\": \"{{ $now }}\"\n}",
+        "options": { "timeout": 5000 }
+      },
+      "id": "2a3b4c5d-0013-0013-0013-000000000013",
+      "name": "Track Outcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "2a3b4c5d-0014-0014-0014-000000000014",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2750, 400]
+    }
+  ],
+  "connections": {
+    "Trigger: Retention Event": {
+      "main": [[{ "node": "Validate Trigger", "type": "main", "index": 0 }]]
+    },
+    "Validate Trigger": {
+      "main": [[
+        { "node": "Load Full Customer Profile", "type": "main", "index": 0 },
+        { "node": "Load Behavioral Signals", "type": "main", "index": 0 }
+      ]]
+    },
+    "Load Full Customer Profile": {
+      "main": [[{ "node": "Build Agent Context", "type": "main", "index": 0 }]]
+    },
+    "Load Behavioral Signals": {
+      "main": [[{ "node": "Build Agent Context", "type": "main", "index": 0 }]]
+    },
+    "Build Agent Context": {
+      "main": [[{ "node": "Call Retention Agent", "type": "main", "index": 0 }]]
+    },
+    "Call Retention Agent": {
+      "main": [[{ "node": "Apply Orchestrator Logic", "type": "main", "index": 0 }]]
+    },
+    "Apply Orchestrator Logic": {
+      "main": [[{ "node": "Route: Call Task?", "type": "main", "index": 0 }]]
+    },
+    "Route: Call Task?": {
+      "main": [
+        [{ "node": "→ Create Call Task", "type": "main", "index": 0 }],
+        [{ "node": "Route: Offer?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route: Offer?": {
+      "main": [
+        [{ "node": "→ Generate Offer", "type": "main", "index": 0 }],
+        [{ "node": "→ Automated Campaign", "type": "main", "index": 0 }]
+      ]
+    },
+    "→ Create Call Task": {
+      "main": [[{ "node": "Track Outcome", "type": "main", "index": 0 }]]
+    },
+    "→ Generate Offer": {
+      "main": [[{ "node": "Track Outcome", "type": "main", "index": 0 }]]
+    },
+    "→ Automated Campaign": {
+      "main": [[{ "node": "Track Outcome", "type": "main", "index": 0 }]]
+    },
+    "Track Outcome": {
+      "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "INSURE.AI — Error Handler"
+  },
+  "tags": ["insure-ai", "retention", "production"],
+  "id": "insure-ai-retention-v1"
+}

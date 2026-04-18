@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>INSURE.AI — Operations Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0d13;
+    --surface: #131620;
+    --surface2: #1a1e2e;
+    --border: rgba(255,255,255,0.07);
+    --border2: rgba(255,255,255,0.12);
+    --teal: #12c39a;
+    --teal-dim: rgba(18,195,154,0.12);
+    --amber: #f5a623;
+    --amber-dim: rgba(245,166,35,0.12);
+    --blue: #4b8ef7;
+    --blue-dim: rgba(75,142,247,0.12);
+    --red: #f05454;
+    --red-dim: rgba(240,84,84,0.12);
+    --purple: #9b7ef7;
+    --purple-dim: rgba(155,126,247,0.12);
+    --text: #e8eaf0;
+    --text2: #8b90a7;
+    --text3: #555a72;
+    --font-ui: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 56px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo { display: flex; align-items: center; gap: 10px; }
+
+  .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--teal);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .logo-mark svg { width: 16px; height: 16px; }
+
+  .logo-text {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+  }
+
+  .logo-text span { color: var(--teal); }
+
+  .header-center { display: flex; align-items: center; gap: 20px; }
+
+  .nav-tab {
+    font-size: 13px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 6px;
+    transition: all 0.15s;
+    text-decoration: none;
+  }
+
+  .nav-tab:hover { color: var(--text); background: var(--surface2); }
+  .nav-tab.active { color: var(--teal); background: var(--teal-dim); }
+
+  .header-right { display: flex; align-items: center; gap: 16px; }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--teal);
+    background: var(--teal-dim);
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(18,195,154,0.2);
+  }
+
+  .live-badge.error { color: var(--red); background: var(--red-dim); border-color: rgba(240,84,84,0.2); }
+  .live-badge.loading { color: var(--text3); background: transparent; border-color: var(--border); }
+
+  .live-dot {
+    width: 6px; height: 6px;
+    background: var(--teal);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  .timestamp {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text3);
+  }
+
+  /* ── API STATUS BAR ── */
+  .api-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 24px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text3);
+  }
+
+  .api-bar-left { display: flex; align-items: center; gap: 16px; }
+
+  .api-endpoint {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .api-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+
+  .api-dot.ok { background: var(--teal); }
+  .api-dot.err { background: var(--red); }
+  .api-dot.pending { background: var(--text3); animation: pulse 1.5s infinite; }
+
+  .api-base-url { color: var(--text2); }
+
+  /* ── MAIN ── */
+  main {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ── SECTION LABEL ── */
+  .section-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* ── KPI CARDS ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .kpi-card:hover { border-color: var(--border2); }
+
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .kpi-card.teal::before { background: var(--teal); }
+  .kpi-card.blue::before { background: var(--blue); }
+  .kpi-card.amber::before { background: var(--amber); }
+  .kpi-card.purple::before { background: var(--purple); }
+
+  .kpi-card.skeleton { animation: shimmer 1.4s infinite; }
+
+  @keyframes shimmer {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .kpi-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .kpi-label { font-size: 12px; color: var(--text2); }
+
+  .kpi-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .kpi-icon.teal { background: var(--teal-dim); }
+  .kpi-icon.blue { background: var(--blue-dim); }
+  .kpi-icon.amber { background: var(--amber-dim); }
+  .kpi-icon.purple { background: var(--purple-dim); }
+  .kpi-icon svg { width: 16px; height: 16px; }
+
+  .kpi-value {
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 500;
+    line-height: 1;
+    margin-bottom: 8px;
+    transition: color 0.3s;
+  }
+
+  .kpi-card.teal .kpi-value { color: var(--teal); }
+  .kpi-card.blue .kpi-value { color: var(--blue); }
+  .kpi-card.amber .kpi-value { color: var(--amber); }
+  .kpi-card.purple .kpi-value { color: var(--purple); }
+
+  .kpi-footer { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+
+  .delta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+
+  .delta.up { background: rgba(18,195,154,0.15); color: var(--teal); }
+  .delta.down { background: var(--red-dim); color: var(--red); }
+
+  /* ── SPARKLINE ── */
+  .sparkline { display: flex; gap: 2px; align-items: flex-end; height: 18px; margin-top: 8px; }
+  .spark-bar { width: 5px; border-radius: 1px; opacity: 0.6; flex-shrink: 0; }
+
+  /* ── CHART ROW ── */
+  .chart-row {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 14px;
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+
+  .chart-title { font-size: 13px; font-weight: 500; color: var(--text); }
+  .chart-subtitle { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+  .chart-filter { display: flex; gap: 4px; }
+
+  .filter-btn {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 3px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn.active, .filter-btn:hover {
+    background: var(--surface2);
+    color: var(--text);
+    border-color: var(--border2);
+  }
+
+  /* ── DONUT ── */
+  .donut-wrap { display: flex; flex-direction: column; align-items: center; }
+
+  .donut-chart-wrap {
+    position: relative;
+    width: 180px; height: 180px;
+    margin: 0 auto 16px;
+  }
+
+  .donut-center {
+    position: absolute;
+    inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+
+  .donut-center-val {
+    font-family: var(--font-mono);
+    font-size: 26px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .donut-center-label { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+  .donut-legend { width: 100%; display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+
+  .legend-row { display: flex; align-items: center; justify-content: space-between; }
+  .legend-left { display: flex; align-items: center; gap: 8px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .legend-name { font-size: 12px; color: var(--text2); }
+  .legend-val { font-family: var(--font-mono); font-size: 12px; color: var(--text); font-weight: 500; }
+
+  /* ── BOTTOM ROW ── */
+  .bottom-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 14px; }
+
+  /* ── AGENTS ── */
+  .agent-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 13px;
+    background: var(--surface2);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    transition: border-color 0.2s;
+  }
+
+  .agent-row:hover { border-color: var(--border2); }
+
+  .agent-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .agent-status-dot.online { background: var(--teal); box-shadow: 0 0 6px var(--teal); }
+  .agent-status-dot.degraded { background: var(--amber); }
+  .agent-status-dot.offline { background: var(--red); }
+
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+  .agent-meta { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+
+  .agent-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .agent-latency { font-family: var(--font-mono); font-size: 12px; color: var(--text2); }
+  .agent-load { width: 60px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .agent-load-fill { height: 100%; border-radius: 2px; transition: width 0.8s ease; }
+
+  /* ── ACTIVITY FEED ── */
+  .activity-feed {
+    display: flex; flex-direction: column;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .activity-feed::-webkit-scrollbar { width: 4px; }
+  .activity-feed::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+    animation: fadeIn 0.35s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .activity-item:last-child { border-bottom: none; }
+
+  .activity-type {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-family: var(--font-mono);
+    font-weight: 500;
+  }
+
+  .activity-type.lead { background: var(--blue-dim); color: var(--blue); }
+  .activity-type.retention { background: var(--teal-dim); color: var(--teal); }
+  .activity-type.claims { background: var(--amber-dim); color: var(--amber); }
+  .activity-type.offers { background: var(--purple-dim); color: var(--purple); }
+
+  .activity-body { flex: 1; min-width: 0; }
+  .activity-text { font-size: 12px; color: var(--text); line-height: 1.4; margin-bottom: 3px; }
+  .activity-meta { display: flex; align-items: center; gap: 6px; }
+  .activity-time { font-family: var(--font-mono); font-size: 10px; color: var(--text3); }
+
+  .route-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+
+  .route-badge.automation { background: var(--teal-dim); color: var(--teal); }
+  .route-badge.human_review { background: var(--blue-dim); color: var(--blue); }
+  .route-badge.escalation { background: var(--red-dim); color: var(--red); }
+
+  /* ── LAST UPDATED CHIP ── */
+  .last-updated {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text3);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .last-updated.fresh { color: var(--teal); }
+  .last-updated.stale { color: var(--amber); }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 16 16" fill="none">
+        <path d="M8 2L14 5V11L8 14L2 11V5L8 2Z" fill="#0b0d13"/>
+        <path d="M8 4L12 6.5V11.5L8 14L4 11.5V6.5L8 4Z" fill="rgba(255,255,255,0.2)"/>
+        <circle cx="8" cy="8" r="2" fill="white"/>
+      </svg>
+    </div>
+    <span class="logo-text">INSURE<span>.</span>AI</span>
+  </div>
+
+  <div class="header-center">
+    <a class="nav-tab active" href="#">Operations</a>
+    <a class="nav-tab" href="#">Pipelines</a>
+    <a class="nav-tab" href="#">Agents</a>
+    <a class="nav-tab" href="#">Audit Trail</a>
+    <a class="nav-tab" href="#">Settings</a>
+  </div>
+
+  <div class="header-right">
+    <div class="live-badge loading" id="liveBadge">
+      <div class="live-dot"></div>
+      <span id="liveLabel">connecting…</span>
+    </div>
+    <div class="timestamp" id="clock">—</div>
+  </div>
+</header>
+
+<!-- ── API STATUS BAR ── -->
+<div class="api-bar">
+  <div class="api-bar-left">
+    <span class="api-base-url" id="apiBaseLabel">API: <span id="apiBaseUrl">—</span></span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-kpis"></span>/kpis</span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-volume"></span>/volume</span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-routing"></span>/routing</span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-agents"></span>/agents</span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-feed"></span>/feed</span>
+    <span class="api-endpoint"><span class="api-dot pending" id="dot-sse"></span>/stream (SSE)</span>
+  </div>
+  <div class="last-updated" id="lastUpdated">—</div>
+</div>
+
+<!-- ── MAIN ── -->
+<main>
+
+  <!-- KPI CARDS -->
+  <div>
+    <div class="section-label">Today's Overview</div>
+    <div class="kpi-grid">
+      <div class="kpi-card teal">
+        <div class="kpi-top">
+          <div class="kpi-label">Events processed</div>
+          <div class="kpi-icon teal">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 8h3l2-5 2 10 2-5h3" stroke="#12c39a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="val-events">—</div>
+        <div class="kpi-footer">
+          <span class="delta" id="delta-events">…</span>
+          <span id="label-events">vs. gestern</span>
+        </div>
+        <div class="sparkline" id="spark-events"></div>
+      </div>
+
+      <div class="kpi-card blue">
+        <div class="kpi-top">
+          <div class="kpi-label">Lead-Konversionsrate</div>
+          <div class="kpi-icon blue">
+            <svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="6" r="3" stroke="#4b8ef7" stroke-width="1.5"/><path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="#4b8ef7" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="val-leads">—</div>
+        <div class="kpi-footer">
+          <span class="delta" id="delta-leads">…</span>
+          <span id="label-leads">7-Tage-Schnitt</span>
+        </div>
+        <div class="sparkline" id="spark-leads"></div>
+      </div>
+
+      <div class="kpi-card amber">
+        <div class="kpi-top">
+          <div class="kpi-label">Churn verhindert</div>
+          <div class="kpi-icon amber">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M8 2l1.5 4.5H14l-3.7 2.7 1.4 4.3L8 11.1 4.3 13.5l1.4-4.3L2 6.5h4.5L8 2z" stroke="#f5a623" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="val-churn">—</div>
+        <div class="kpi-footer">
+          <span class="delta" id="delta-churn">…</span>
+          <span id="label-churn">Retention-Rate</span>
+        </div>
+        <div class="sparkline" id="spark-churn"></div>
+      </div>
+
+      <div class="kpi-card purple">
+        <div class="kpi-top">
+          <div class="kpi-label">Claims auto-processed</div>
+          <div class="kpi-icon purple">
+            <svg viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="10" rx="2" stroke="#9b7ef7" stroke-width="1.5"/><path d="M5 8h6M5 11h3" stroke="#9b7ef7" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+        <div class="kpi-value" id="val-claims">—</div>
+        <div class="kpi-footer">
+          <span class="delta" id="delta-claims">…</span>
+          <span id="label-claims">Automatisierungsgrad</span>
+        </div>
+        <div class="sparkline" id="spark-claims"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS ROW -->
+  <div class="chart-row">
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Pipeline-Volumen</div>
+          <div class="chart-subtitle" id="volumeSubtitle">Lade Daten…</div>
+        </div>
+        <div class="chart-filter" id="rangeFilter">
+          <button class="filter-btn active" data-range="7d">7T</button>
+          <button class="filter-btn" data-range="30d">30T</button>
+          <button class="filter-btn" data-range="90d">90T</button>
+        </div>
+      </div>
+      <div style="position:relative;height:220px;">
+        <canvas id="volumeChart" role="img" aria-label="Pipeline volume grouped bar chart">Pipeline volume data across four pipelines.</canvas>
+      </div>
+      <div id="volumeLegend" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:11px;"></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Routing-Entscheidungen</div>
+          <div class="chart-subtitle">Orchestrator-Output heute</div>
+        </div>
+        <div class="last-updated" id="routingUpdated">—</div>
+      </div>
+      <div class="donut-wrap">
+        <div class="donut-chart-wrap">
+          <canvas id="routingChart" role="img" aria-label="Donut chart showing routing decision split">Routing decision breakdown.</canvas>
+          <div class="donut-center">
+            <div class="donut-center-val" id="routingTotal">—</div>
+            <div class="donut-center-label">total heute</div>
+          </div>
+        </div>
+        <div class="donut-legend">
+          <div class="legend-row">
+            <div class="legend-left"><div class="legend-dot" style="background:#12c39a;"></div><div class="legend-name">Automation</div></div>
+            <div class="legend-val" id="leg-auto">—</div>
+          </div>
+          <div class="legend-row">
+            <div class="legend-left"><div class="legend-dot" style="background:#4b8ef7;"></div><div class="legend-name">Human Review</div></div>
+            <div class="legend-val" id="leg-human">—</div>
+          </div>
+          <div class="legend-row">
+            <div class="legend-left"><div class="legend-dot" style="background:#f05454;"></div><div class="legend-name">Escalation</div></div>
+            <div class="legend-val" id="leg-esc">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- BOTTOM ROW -->
+  <div class="bottom-row">
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Agent-Status</div>
+          <div class="chart-subtitle">FastAPI + LLM Backend</div>
+        </div>
+        <div class="last-updated" id="agentsUpdated">—</div>
+      </div>
+      <div class="agent-list" id="agentList">
+        <div style="color:var(--text3);font-size:12px;padding:16px 0;">Lade Agent-Status…</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Live Activity Feed</div>
+          <div class="chart-subtitle" id="feedSubtitle">Verbinde mit SSE-Stream…</div>
+        </div>
+        <div class="live-badge" id="feedBadge" style="font-size:10px;padding:2px 8px;">
+          <div class="live-dot"></div>
+          <span id="feedBadgeLabel">connecting</span>
+        </div>
+      </div>
+      <div class="activity-feed" id="activityFeed">
+        <div style="color:var(--text3);font-size:12px;padding:16px 0;">Lade Activity Feed…</div>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG — set your FastAPI base URL here
+// ─────────────────────────────────────────────────────────────────────────────
+
+const API_BASE = window.INSURE_AI_API_BASE || 'http://localhost:8000';
+
+// Polling intervals (ms)
+const POLL_KPI     = 30_000;
+const POLL_ROUTING = 30_000;
+const POLL_AGENTS  = 15_000;
+const POLL_VOLUME  = 60_000;   // volume changes rarely
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+
+let volumeChart = null;
+let routingChart = null;
+let currentRange = '7d';
+let apiReachable = false;
+let sseSource = null;
+let feedEventCount = 0;
+
+const DOT_IDS = ['kpis','volume','routing','agents','feed','sse'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function apiFetch(path) {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+function setDot(id, state) {               // state: 'ok' | 'err' | 'pending'
+  const el = document.getElementById(`dot-${id}`);
+  if (el) { el.className = `api-dot ${state}`; }
+}
+
+function fmtTime(isoOrDate) {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+  return d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function markUpdated(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.textContent = `↻ ${fmtTime(new Date())}`;
+  el.className = 'last-updated fresh';
+  setTimeout(() => el && (el.className = 'last-updated'), 4000);
+}
+
+function setLiveBadge(state) {
+  const badge = document.getElementById('liveBadge');
+  const label = document.getElementById('liveLabel');
+  badge.className = `live-badge ${state}`;
+  label.textContent = state === 'loading' ? 'connecting…' : state === 'error' ? 'API offline' : 'LIVE';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sparklines
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderSparkline(containerId, data, color) {
+  const el = document.getElementById(containerId);
+  if (!el || !data || !data.length) return;
+  const max = Math.max(...data);
+  el.innerHTML = data.map(v => {
+    const h = Math.max(3, Math.round((v / max) * 18));
+    return `<div class="spark-bar" style="height:${h}px;background:${color};"></div>`;
+  }).join('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPI counter animation
+// ─────────────────────────────────────────────────────────────────────────────
+
+function animateTo(el, target, isFloat) {
+  const start = parseFloat(el.textContent.replace(/[^0-9.]/g, '')) || 0;
+  const duration = 700;
+  const t0 = performance.now();
+  function step(now) {
+    const p = Math.min((now - t0) / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    const cur = start + (target - start) * ease;
+    el.textContent = isFloat ? cur.toFixed(1) + '%' : Math.round(cur).toLocaleString('de-CH');
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KPIs
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadKPIs() {
+  setDot('kpis', 'pending');
+  try {
+    const data = await apiFetch('/api/v1/dashboard/kpis');
+    setDot('kpis', 'ok');
+    apiReachable = true;
+    setLiveBadge('live');
+
+    const configs = [
+      { id: 'events', val: data.events_processed, color: '#12c39a', isFloat: false, sparkId: 'spark-events' },
+      { id: 'leads',  val: data.lead_conversion_rate, color: '#4b8ef7', isFloat: true, sparkId: 'spark-leads' },
+      { id: 'churn',  val: data.churn_prevention_rate, color: '#f5a623', isFloat: true, sparkId: 'spark-churn' },
+      { id: 'claims', val: data.claims_auto_processed, color: '#9b7ef7', isFloat: true, sparkId: 'spark-claims' },
+    ];
+
+    configs.forEach(({ id, val, color, isFloat, sparkId }) => {
+      const valEl = document.getElementById(`val-${id}`);
+      if (valEl) animateTo(valEl, val.value, isFloat);
+
+      const deltaEl = document.getElementById(`delta-${id}`);
+      if (deltaEl) {
+        const sign = val.delta_pct >= 0 ? '↑' : '↓';
+        deltaEl.textContent = `${sign} ${Math.abs(val.delta_pct).toFixed(1)}%`;
+        deltaEl.className = `delta ${val.delta_pct >= 0 ? 'up' : 'down'}`;
+      }
+
+      const labelEl = document.getElementById(`label-${id}`);
+      if (labelEl) labelEl.textContent = val.delta_label;
+
+      renderSparkline(sparkId, val.trend, color);
+    });
+
+    document.getElementById('lastUpdated').textContent = `↻ ${fmtTime(new Date())}`;
+    document.getElementById('lastUpdated').className = 'last-updated fresh';
+    setTimeout(() => {
+      const el = document.getElementById('lastUpdated');
+      if (el) el.className = 'last-updated';
+    }, 4000);
+
+  } catch (err) {
+    setDot('kpis', 'err');
+    setLiveBadge('error');
+    console.warn('[KPIs] fetch failed:', err.message);
+    useDemoKPIs();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Volume Chart
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildVolumeChart(days) {
+  const ctx = document.getElementById('volumeChart');
+
+  const chartData = {
+    labels: days.map(d => d.label),
+    datasets: [
+      { label: 'Leads',     data: days.map(d => d.lead),      backgroundColor: 'rgba(75,142,247,0.7)',  borderRadius: 3, barPercentage: 0.75 },
+      { label: 'Retention', data: days.map(d => d.retention), backgroundColor: 'rgba(18,195,154,0.7)', borderRadius: 3, barPercentage: 0.75 },
+      { label: 'Claims',    data: days.map(d => d.claims),    backgroundColor: 'rgba(245,166,35,0.7)', borderRadius: 3, barPercentage: 0.75 },
+      { label: 'Offers',    data: days.map(d => d.offers),    backgroundColor: 'rgba(155,126,247,0.7)',borderRadius: 3, barPercentage: 0.75 },
+    ]
+  };
+
+  if (volumeChart) {
+    volumeChart.data = chartData;
+    volumeChart.update('active');
+  } else {
+    volumeChart = new Chart(ctx, {
+      type: 'bar',
+      data: chartData,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 500 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1a1e2e',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            titleColor: '#8b90a7',
+            bodyColor: '#e8eaf0',
+            padding: 10,
+            titleFont: { family: 'DM Mono', size: 11 },
+            bodyFont: { family: 'DM Mono', size: 12 },
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: { color: '#555a72', font: { family: 'DM Mono', size: 11 }, autoSkip: false, maxRotation: 45 },
+            border: { color: 'rgba(255,255,255,0.07)' }
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: { color: '#555a72', font: { family: 'DM Mono', size: 11 } },
+            border: { color: 'transparent' }
+          }
+        }
+      }
+    });
+  }
+
+  // legend + totals
+  const legendEl = document.getElementById('volumeLegend');
+  if (legendEl) {
+    legendEl.innerHTML = [
+      { label: 'Leads', color: '#4b8ef7', key: 'lead' },
+      { label: 'Retention', color: '#12c39a', key: 'retention' },
+      { label: 'Claims', color: '#f5a623', key: 'claims' },
+      { label: 'Offers', color: '#9b7ef7', key: 'offers' },
+    ].map(item => {
+      const total = days.reduce((s, d) => s + (d[item.key] || 0), 0);
+      return `<span style="display:flex;align-items:center;gap:5px;color:#8b90a7;">
+        <span style="width:10px;height:10px;border-radius:2px;background:${item.color};display:inline-block;"></span>
+        ${item.label} <span style="color:#e8eaf0;font-family:var(--font-mono);font-size:11px;">${total.toLocaleString('de-CH')}</span>
+      </span>`;
+    }).join('');
+  }
+}
+
+async function loadVolume(range = currentRange) {
+  setDot('volume', 'pending');
+  try {
+    const data = await apiFetch(`/api/v1/pipeline/volume?range=${range}`);
+    setDot('volume', 'ok');
+    buildVolumeChart(data.days);
+    document.getElementById('volumeSubtitle').textContent =
+      `Ereignisse pro Pipeline-Typ · ${data.range}`;
+  } catch (err) {
+    setDot('volume', 'err');
+    console.warn('[Volume] fetch failed:', err.message);
+    useDemoVolume();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Routing Donut
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadRouting() {
+  setDot('routing', 'pending');
+  try {
+    const d = await apiFetch('/api/v1/orchestrator/routing');
+    setDot('routing', 'ok');
+
+    document.getElementById('routingTotal').textContent = d.total.toLocaleString('de-CH');
+    document.getElementById('leg-auto').innerHTML  = `${d.automation.toLocaleString()} <span style="color:var(--text3);font-size:11px;">${d.automation_pct}%</span>`;
+    document.getElementById('leg-human').innerHTML = `${d.human_review.toLocaleString()} <span style="color:var(--text3);font-size:11px;">${d.human_review_pct}%</span>`;
+    document.getElementById('leg-esc').innerHTML   = `${d.escalation.toLocaleString()} <span style="color:var(--text3);font-size:11px;">${d.escalation_pct}%</span>`;
+
+    const newData = [d.automation_pct, d.human_review_pct, d.escalation_pct];
+
+    if (routingChart) {
+      routingChart.data.datasets[0].data = newData;
+      routingChart.update('active');
+    } else {
+      routingChart = new Chart(document.getElementById('routingChart'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Automation', 'Human Review', 'Escalation'],
+          datasets: [{ data: newData, backgroundColor: ['#12c39a','#4b8ef7','#f05454'], borderWidth: 0, hoverOffset: 4 }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '72%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1a1e2e',
+              borderColor: 'rgba(255,255,255,0.1)',
+              borderWidth: 1,
+              callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}%` },
+              bodyFont: { family: 'DM Mono', size: 12 },
+            }
+          }
+        }
+      });
+    }
+
+    markUpdated('routingUpdated');
+  } catch (err) {
+    setDot('routing', 'err');
+    console.warn('[Routing] fetch failed:', err.message);
+    useDemoRouting();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agents
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AGENT_COLORS = {
+  lead: '#4b8ef7', retention: '#12c39a', claims: '#f5a623', offers: '#9b7ef7', orchestrator: '#12c39a'
+};
+
+async function loadAgents() {
+  setDot('agents', 'pending');
+  try {
+    const data = await apiFetch('/api/v1/agents/status');
+    setDot('agents', 'ok');
+
+    const list = document.getElementById('agentList');
+    list.innerHTML = data.agents.map(a => {
+      const color = AGENT_COLORS[a.pipeline] || '#12c39a';
+      const latencyMs = a.p95_latency_ms;
+      const latencyS = (latencyMs / 1000).toFixed(1) + 's';
+      const latencyColor = latencyMs > 2000 ? 'var(--amber)' : 'var(--text2)';
+      const loadW = Math.round(a.load_pct * 100);
+      const errNote = a.error_rate_pct > 1 ? ` · err: ${a.error_rate_pct}%` : '';
+
+      return `
+        <div class="agent-row">
+          <div class="agent-status-dot ${a.status}"></div>
+          <div class="agent-info">
+            <div class="agent-name">${a.name}</div>
+            <div class="agent-meta">${a.requests_per_hour.toLocaleString('de-CH')} req/h · p95: ${latencyS}${errNote}</div>
+          </div>
+          <div class="agent-right">
+            <div class="agent-latency" style="color:${latencyColor};">${latencyS}</div>
+            <div class="agent-load"><div class="agent-load-fill" style="width:${loadW}%;background:${color};"></div></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const onlineCount = data.agents_online;
+    document.querySelector('#agentList').closest('.chart-card')
+      .querySelector('.chart-header .last-updated, .chart-header div:last-child').remove?.();
+
+    markUpdated('agentsUpdated');
+
+    const headerRight = document.getElementById('agentsUpdated');
+    if (headerRight) {
+      headerRight.textContent = `${onlineCount}/${data.agents_total} online`;
+      headerRight.style.color = onlineCount === data.agents_total ? 'var(--teal)' : 'var(--amber)';
+    }
+
+  } catch (err) {
+    setDot('agents', 'err');
+    console.warn('[Agents] fetch failed:', err.message);
+    useDemoAgents();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Activity Feed (initial load)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PIPELINE_CODES = { lead: 'LD', retention: 'RT', claims: 'CL', offers: 'OF' };
+const ROUTE_LABELS   = { automation: '→ Auto', human_review: '→ Human', escalation: '→ Escalate' };
+
+function renderFeedItem(event) {
+  const code = PIPELINE_CODES[event.pipeline] || '??';
+  const routeClass = event.route;
+  const routeLabel = ROUTE_LABELS[event.route] || event.route;
+  const time = fmtTime(event.timestamp || new Date());
+
+  const item = document.createElement('div');
+  item.className = 'activity-item';
+  item.innerHTML = `
+    <div class="activity-type ${event.pipeline}">${code}</div>
+    <div class="activity-body">
+      <div class="activity-text">${event.title} — ${event.detail}</div>
+      <div class="activity-meta">
+        <span class="activity-time">${time}</span>
+        <span class="route-badge ${routeClass}">${routeLabel}</span>
+      </div>
+    </div>
+  `;
+  return item;
+}
+
+async function loadFeed() {
+  setDot('feed', 'pending');
+  try {
+    const data = await apiFetch('/api/v1/activity/feed?limit=10');
+    setDot('feed', 'ok');
+
+    const feed = document.getElementById('activityFeed');
+    feed.innerHTML = '';
+    data.events.forEach(ev => feed.appendChild(renderFeedItem(ev)));
+    feedEventCount = data.events.length;
+  } catch (err) {
+    setDot('feed', 'err');
+    console.warn('[Feed] fetch failed:', err.message);
+    useDemoFeed();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SSE Live Stream
+// ─────────────────────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  setDot('sse', 'pending');
+  const badge = document.getElementById('feedBadge');
+  const badgeLabel = document.getElementById('feedBadgeLabel');
+
+  try {
+    sseSource = new EventSource(`${API_BASE}/api/v1/activity/stream`);
+
+    sseSource.onopen = () => {
+      setDot('sse', 'ok');
+      badge.className = 'live-badge';
+      badgeLabel.textContent = 'live';
+      document.getElementById('feedSubtitle').textContent = 'SSE-Stream aktiv · Echtzeit';
+    };
+
+    sseSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        const feed = document.getElementById('activityFeed');
+        const item = renderFeedItem(event);
+        feed.insertBefore(item, feed.firstChild);
+        feedEventCount++;
+        if (feed.children.length > 15) feed.removeChild(feed.lastChild);
+        document.getElementById('feedSubtitle').textContent =
+          `SSE · ${feedEventCount} Events empfangen`;
+      } catch (_) {}
+    };
+
+    sseSource.onerror = () => {
+      setDot('sse', 'err');
+      badge.className = 'live-badge error';
+      badgeLabel.textContent = 'reconnecting';
+      document.getElementById('feedSubtitle').textContent = 'SSE-Verbindung unterbrochen — reconnecting…';
+      sseSource.close();
+      setTimeout(connectSSE, 5000);
+    };
+
+  } catch (err) {
+    setDot('sse', 'err');
+    console.warn('[SSE] not available, falling back to polling');
+    badge.className = 'live-badge error';
+    badgeLabel.textContent = 'polling';
+    document.getElementById('feedSubtitle').textContent = 'SSE nicht verfügbar — Polling alle 10s';
+    setInterval(loadFeed, 10_000);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Demo fallback data (used when API is unreachable)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function useDemoKPIs() {
+  [['val-events','1.247',false],['val-leads','34.2%',false],['val-churn','78.5%',false],['val-claims','62.1%',false]].forEach(([id,v]) => {
+    const el = document.getElementById(id); if (el) el.textContent = v;
+  });
+  [['delta-events','↑ 12.4%','up'],['delta-leads','↑ 3.1%','up'],['delta-churn','↓ 1.2%','down'],['delta-claims','↑ 5.8%','up']].forEach(([id,t,cls]) => {
+    const el = document.getElementById(id); if (el) { el.textContent = t; el.className = `delta ${cls}`; }
+  });
+  renderSparkline('spark-events', [980,1020,1100,1050,1180,1220,1247], '#12c39a');
+  renderSparkline('spark-leads',  [31,32,33,33.5,34,34.1,34.2], '#4b8ef7');
+  renderSparkline('spark-churn',  [80,79.5,79,78.8,78.6,78.5,78.5], '#f5a623');
+  renderSparkline('spark-claims', [56,57,59,60,61,62,62.1], '#9b7ef7');
+}
+
+function useDemoVolume() {
+  const days = ['Mo','Di','Mi','Do','Fr','Sa','So'].map((label, i) => ({
+    label,
+    lead: [180,210,195,240,275,160,120][i],
+    retention: [95,110,130,115,140,90,75][i],
+    claims: [75,88,92,105,118,60,45][i],
+    offers: [60,72,68,80,95,55,42][i],
+  }));
+  buildVolumeChart(days);
+  document.getElementById('volumeSubtitle').textContent = 'Demo-Daten · API nicht erreichbar';
+  setDot('volume', 'err');
+}
+
+function useDemoRouting() {
+  document.getElementById('routingTotal').textContent = '1.247';
+  document.getElementById('leg-auto').innerHTML  = `786 <span style="color:var(--text3);font-size:11px;">63%</span>`;
+  document.getElementById('leg-human').innerHTML = `299 <span style="color:var(--text3);font-size:11px;">24%</span>`;
+  document.getElementById('leg-esc').innerHTML   = `162 <span style="color:var(--text3);font-size:11px;">13%</span>`;
+  if (!routingChart) {
+    routingChart = new Chart(document.getElementById('routingChart'), {
+      type: 'doughnut',
+      data: { labels: ['Automation','Human Review','Escalation'], datasets: [{ data: [63,24,13], backgroundColor: ['#12c39a','#4b8ef7','#f05454'], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false } } }
+    });
+  }
+  setDot('routing', 'err');
+}
+
+function useDemoAgents() {
+  const agents = [
+    { name:'Lead Intelligence Agent', status:'online',   rph:342, lat:'1.2s', load:68, color:'#4b8ef7' },
+    { name:'Retention Agent',          status:'online',   rph:218, lat:'0.9s', load:45, color:'#12c39a' },
+    { name:'Claims Assessment Agent',  status:'degraded', rph:187, lat:'2.4s', load:82, color:'#f5a623' },
+    { name:'Offer Agent',              status:'online',   rph:156, lat:'1.1s', load:38, color:'#9b7ef7' },
+    { name:'Orchestrator',             status:'online',   rph:903, lat:'0.4s', load:55, color:'#12c39a' },
+  ];
+  document.getElementById('agentList').innerHTML = agents.map(a => `
+    <div class="agent-row">
+      <div class="agent-status-dot ${a.status}"></div>
+      <div class="agent-info">
+        <div class="agent-name">${a.name}</div>
+        <div class="agent-meta">${a.rph} req/h · p95: ${a.lat}</div>
+      </div>
+      <div class="agent-right">
+        <div class="agent-latency" style="color:${a.status==='degraded'?'var(--amber)':'var(--text2)'};">${a.lat}</div>
+        <div class="agent-load"><div class="agent-load-fill" style="width:${a.load}%;background:${a.color};"></div></div>
+      </div>
+    </div>
+  `).join('');
+  setDot('agents', 'err');
+}
+
+function useDemoFeed() {
+  const items = [
+    { pipeline:'lead',      detail:'Lead #L-2847 qualifiziert — KMU, Zürich', route:'automation',  time:'14:22:08' },
+    { pipeline:'claims',    detail:'Claim #C-9931 — Wasserschaden, Priorität: Mittel', route:'automation', time:'14:21:54' },
+    { pipeline:'retention', detail:'Churn-Risiko — Kunde #K-5512, Score: 0.84', route:'human_review', time:'14:21:41' },
+    { pipeline:'offers',    detail:'Angebot generiert — Cyber-Zusatz B2B', route:'human_review', time:'14:21:29' },
+    { pipeline:'claims',    detail:'Claim #C-9930 eskaliert — Betrugsindikator', route:'escalation', time:'14:21:17' },
+  ];
+  const feed = document.getElementById('activityFeed');
+  feed.innerHTML = '';
+  items.forEach(item => {
+    const code = PIPELINE_CODES[item.pipeline];
+    const el = document.createElement('div');
+    el.className = 'activity-item';
+    el.innerHTML = `
+      <div class="activity-type ${item.pipeline}">${code}</div>
+      <div class="activity-body">
+        <div class="activity-text">${item.detail}</div>
+        <div class="activity-meta">
+          <span class="activity-time">${item.time}</span>
+          <span class="route-badge ${item.route}">${ROUTE_LABELS[item.route]}</span>
+        </div>
+      </div>
+    `;
+    feed.appendChild(el);
+  });
+  document.getElementById('feedSubtitle').textContent = 'Demo-Daten · SSE nicht verfügbar';
+  document.getElementById('feedBadge').className = 'live-badge error';
+  document.getElementById('feedBadgeLabel').textContent = 'offline';
+  setDot('feed', 'err');
+  setDot('sse', 'err');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Clock
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleDateString('de-CH') + ' · ' +
+    now.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Range filter
+// ─────────────────────────────────────────────────────────────────────────────
+
+document.getElementById('rangeFilter').addEventListener('click', e => {
+  const btn = e.target.closest('[data-range]');
+  if (!btn) return;
+  document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentRange = btn.dataset.range;
+  loadVolume(currentRange);
+});
+
+// Nav tabs
+document.querySelectorAll('.nav-tab').forEach(t => {
+  t.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.nav-tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────────────────────
+
+document.getElementById('apiBaseUrl').textContent = API_BASE;
+
+async function init() {
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // Load all panels concurrently
+  await Promise.allSettled([
+    loadKPIs(),
+    loadVolume(),
+    loadRouting(),
+    loadAgents(),
+    loadFeed(),
+  ]);
+
+  // SSE stream for live feed
+  connectSSE();
+
+  // Polling refresh
+  setInterval(loadKPIs,     POLL_KPI);
+  setInterval(loadRouting,  POLL_ROUTING);
+  setInterval(loadAgents,   POLL_AGENTS);
+  setInterval(() => loadVolume(currentRange), POLL_VOLUME);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+{
+  "name": "INSURE.AI — Claims Assessment Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "insure-ai-claim",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook: New Claim",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nreturn [{\n  json: {\n    customer_id:      body.customer_id  || body.policy_holder || `CLM-${Date.now()}`,\n    policy_id:        body.policy_id    || '',\n    claim_type:       body.type         || body.claim_type || 'Unbekannt',\n    claim_amount_chf: parseFloat(body.amount || body.claim_amount || 0),\n    description:      body.description  || body.notes || '',\n    incident_date:    body.incident_date|| new Date().toISOString().split('T')[0],\n    documents:        body.documents    || [],\n    channel:          body.channel      || 'web',\n    received_at:      new Date().toISOString()\n  }\n}];"
+      },
+      "id": "normalize",
+      "name": "Normalize Claim Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/ai/claims",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "call-agent",
+      "name": "Call Claims Assessment Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "Returns: { classification, priority, fraud_score, confidence, reasoning, recommended_route }"
+    },
+    {
+      "parameters": {
+        "jsCode": "const agent = $input.first().json;\nconst claim = $('Normalize Claim Data').first().json;\n\nconst fraudScore    = agent.fraud_score     || 0;\nconst confidence    = agent.confidence      || 0.5;\nconst claimAmount   = claim.claim_amount_chf || 0;\nconst previousClaims = agent.previous_claims || 0;\n\n// Business rules\nlet route, urgency;\n\nif (fraudScore > 0.7) {\n  route   = 'escalation';\n  urgency = 'high';\n} else if (claimAmount > 50000 || confidence < 0.65 || previousClaims > 1) {\n  route   = 'human_review';\n  urgency = claimAmount > 80000 ? 'high' : 'medium';\n} else {\n  route   = 'automation';\n  urgency = 'low';\n}\n\nreturn [{\n  json: {\n    ...claim,\n    classification:  agent.classification  || claim.claim_type,\n    priority:        agent.priority        || urgency,\n    fraud_score:     fraudScore,\n    confidence:      confidence,\n    previous_claims: previousClaims,\n    route:           route,\n    urgency:         urgency,\n    title:  `Claim ${claim.claim_type} — CHF ${claimAmount.toLocaleString('de-CH')}`,\n    detail: `${agent.classification || claim.claim_type} · Priorität: ${urgency}${\n      fraudScore > 0.5 ? ` · Fraud: ${(fraudScore*100).toFixed(0)}%` : ''\n    }`,\n    agent_latency_ms: agent.latency_ms || null\n  }\n}];"
+      },
+      "id": "orchestrate",
+      "name": "Apply Orchestrator Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/webhooks/claims",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"{{ $execution.id }}\",\n  \"customer_id\": \"{{ $json.customer_id }}\",\n  \"pipeline\": \"claims\",\n  \"route\": \"{{ $json.route }}\",\n  \"confidence\": {{ $json.confidence }},\n  \"urgency\": \"{{ $json.urgency }}\",\n  \"title\": \"{{ $json.title }}\",\n  \"detail\": \"{{ $json.detail }}\",\n  \"claim_amount_chf\": {{ $json.claim_amount_chf || null }},\n  \"claim_type\": \"{{ $json.claim_type }}\",\n  \"fraud_score\": {{ $json.fraud_score || null }},\n  \"policy_id\": \"{{ $json.policy_id }}\",\n  \"previous_claims\": {{ $json.previous_claims || 0 }},\n  \"agent_latency_ms\": {{ $json.agent_latency_ms || null }}\n}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "post-webhook",
+      "name": "POST → FastAPI /webhooks/claims",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/v1/webhooks/orchestrator",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event_id\": \"ORC-{{ $execution.id }}\",\n  \"pipeline\": \"claims\",\n  \"route\": \"{{ $json.route }}\",\n  \"confidence\": {{ $json.confidence }},\n  \"business_rule_triggered\": \"{{ $json.fraud_score > 0.7 ? 'fraud_threshold' : $json.claim_amount_chf > 50000 ? 'amount_limit' : 'standard' }}\",\n  \"agent_latency_ms\": {{ $json.agent_latency_ms || null }}\n}",
+        "options": {}
+      },
+      "id": "post-orchestrator",
+      "name": "POST → FastAPI /webhooks/orchestrator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"processed\", \"route\": \"{{ $('Apply Orchestrator Logic').first().json.route }}\" }"
+      },
+      "id": "respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: New Claim": {
+      "main": [[ { "node": "Normalize Claim Data", "type": "main", "index": 0 } ]]
+    },
+    "Normalize Claim Data": {
+      "main": [[ { "node": "Call Claims Assessment Agent", "type": "main", "index": 0 } ]]
+    },
+    "Call Claims Assessment Agent": {
+      "main": [[ { "node": "Apply Orchestrator Logic", "type": "main", "index": 0 } ]]
+    },
+    "Apply Orchestrator Logic": {
+      "main": [[ { "node": "POST → FastAPI /webhooks/claims", "type": "main", "index": 0 } ]]
+    },
+    "POST → FastAPI /webhooks/claims": {
+      "main": [[ { "node": "POST → FastAPI /webhooks/orchestrator", "type": "main", "index": 0 } ]]
+    },
+    "POST → FastAPI /webhooks/orchestrator": {
+      "main": [[ { "node": "Respond to Webhook", "type": "main", "index": 0 } ]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": ["insure.ai", "claims", "webhook"]
+}

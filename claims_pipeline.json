@@ -1,0 +1,295 @@
+{
+  "name": "INSURE.AI — Claims Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claims/new",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1a2b3c4d-0001-0001-0001-000000000001",
+      "name": "Trigger: New Claim",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "insure-ai-claims-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize and validate incoming claim payload\nconst body = $input.first().json;\n\nconst required = ['claim_id', 'customer_id', 'policy_id', 'claim_type', 'claim_amount', 'description'];\nconst missing = required.filter(f => !body[f]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Normalize claim_type\nconst claimTypeMap = {\n  'fire': 'fire', 'brand': 'fire',\n  'water': 'water', 'wasser': 'water',\n  'theft': 'theft', 'diebstahl': 'theft',\n  'accident': 'accident', 'unfall': 'accident',\n  'fraud': 'fraud_suspected'\n};\n\nconst normalizedType = claimTypeMap[body.claim_type?.toLowerCase()] || body.claim_type;\n\nreturn [{\n  json: {\n    ...body,\n    claim_type: normalizedType,\n    claim_amount: parseFloat(body.claim_amount),\n    currency: body.currency || 'CHF',\n    submission_channel: body.submission_channel || 'web',\n    attachments: body.attachments || [],\n    received_at: new Date().toISOString(),\n    pipeline: 'claims'\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0002-0002-0002-000000000002",
+      "name": "Validate & Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CRM_BASE_URL }}/api/v1/customers/{{ $json.customer_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "1a2b3c4d-0003-0003-0003-000000000003",
+      "name": "Load Customer Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 200],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.POLICY_BASE_URL }}/api/v1/policies/{{ $json.policy_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "1a2b3c4d-0004-0004-0004-000000000004",
+      "name": "Load Policy & Claims History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [750, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge claim data with customer + policy context\nconst claim = $('Validate & Normalize').first().json;\nconst customer = $('Load Customer Data').first().json || {};\nconst policy = $('Load Policy & Claims History').first().json || {};\n\nconst enriched = {\n  // Core claim fields\n  claim_id: claim.claim_id,\n  customer_id: claim.customer_id,\n  policy_id: claim.policy_id,\n  claim_type: claim.claim_type,\n  claim_amount: claim.claim_amount,\n  currency: claim.currency,\n  description: claim.description,\n  submission_channel: claim.submission_channel,\n  attachments: claim.attachments,\n\n  // Customer enrichment\n  customer_since_years: customer.years_as_customer || null,\n  previous_claims_count: customer.total_claims_count || 0,\n  previous_claims_total: customer.total_claims_amount || 0,\n  customer_ltv: customer.ltv_estimate || null,\n\n  // Policy enrichment\n  policy_type: policy.product_name || null,\n  policy_annual_premium: policy.annual_premium || null,\n  policy_coverage_limit: policy.coverage_limit || null,\n};\n\nreturn [{ json: enriched }];"
+      },
+      "id": "1a2b3c4d-0005-0005-0005-000000000005",
+      "name": "Merge Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AGENT_BASE_URL }}/agent/claims",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "1a2b3c4d-0006-0006-0006-000000000006",
+      "name": "Call Claims Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Apply Orchestrator business rules on top of agent result\nconst agent = $json;\n\n// Hard business rule overrides\nlet finalRoute = agent.recommended_route;\nlet escalationReason = null;\n\n// Rule 1: Auto-limit override — amounts above CHF 50k cannot be auto-processed\nif (agent.recommended_route === 'auto_process' && $('Merge Context').first().json.claim_amount > 50000) {\n  finalRoute = 'manual_review';\n  escalationReason = 'Amount exceeds auto-processing limit (CHF 50k)';\n}\n\n// Rule 2: Fraud score hard cutoff — always SIU above 0.75\nif (agent.fraud_score >= 0.75) {\n  finalRoute = 'siu_referral';\n  escalationReason = `Fraud score ${agent.fraud_score.toFixed(2)} exceeds SIU threshold (0.75)`;\n}\n\n// Rule 3: Low confidence fallback\nif (agent.confidence < 0.60 && finalRoute === 'auto_process') {\n  finalRoute = 'manual_review';\n  escalationReason = `Agent confidence too low for automation (${agent.confidence.toFixed(2)})`;\n}\n\nreturn [{\n  json: {\n    ...agent,\n    final_route: finalRoute,\n    orchestrator_override: finalRoute !== agent.recommended_route,\n    escalation_reason: escalationReason,\n    orchestrated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0007-0007-0007-000000000007",
+      "name": "Apply Orchestrator Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "route-auto",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "auto_process",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1a2b3c4d-0008-0008-0008-000000000008",
+      "name": "Route: Auto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1750, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "route-siu",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "siu_referral",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "1a2b3c4d-0009-0009-0009-000000000009",
+      "name": "Route: SIU?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AUTO PROCESS: Standard claim, trigger automated payout workflow\nconst data = $json;\nreturn [{\n  json: {\n    action: 'auto_process',\n    claim_id: data.claim_id,\n    estimated_payout: data.estimated_payout,\n    priority: data.priority,\n    message: `Claim ${data.claim_id} queued for automated processing`,\n    next_system: 'claims_management_auto',\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0010-0010-0010-000000000010",
+      "name": "→ Auto Process",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// MANUAL REVIEW: Route to Human-in-the-Loop queue\nconst data = $json;\nreturn [{\n  json: {\n    action: 'manual_review',\n    claim_id: data.claim_id,\n    priority: data.priority,\n    flags: data.flags,\n    reasoning: data.reasoning,\n    override_reason: data.escalation_reason,\n    assigned_queue: data.priority === 'critical' ? 'senior_adjuster' : 'standard_review',\n    message: `Claim ${data.claim_id} sent to manual review queue`,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0011-0011-0011-000000000011",
+      "name": "→ Manual Review (HITL)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SIU REFERRAL: Special Investigations Unit escalation\nconst data = $json;\nreturn [{\n  json: {\n    action: 'siu_referral',\n    claim_id: data.claim_id,\n    fraud_score: data.fraud_score,\n    flags: data.flags,\n    reasoning: data.reasoning,\n    alert_level: 'HIGH',\n    message: `FRAUD ALERT: Claim ${data.claim_id} referred to SIU (score: ${data.fraud_score.toFixed(2)})`,\n    next_system: 'siu_case_management',\n    payout_hold: true,\n    processed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "1a2b3c4d-0012-0012-0012-000000000012",
+      "name": "→ SIU Referral",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 600]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.AUDIT_BASE_URL }}/api/v1/audit/log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline\": \"claims\",\n  \"claim_id\": \"{{ $json.claim_id }}\",\n  \"action\": \"{{ $json.action }}\",\n  \"classification\": \"{{ $('Apply Orchestrator Logic').first().json.classification }}\",\n  \"priority\": \"{{ $('Apply Orchestrator Logic').first().json.priority }}\",\n  \"confidence\": {{ $('Apply Orchestrator Logic').first().json.confidence }},\n  \"fraud_score\": {{ $('Apply Orchestrator Logic').first().json.fraud_score }},\n  \"final_route\": \"{{ $('Apply Orchestrator Logic').first().json.final_route }}\",\n  \"orchestrator_override\": {{ $('Apply Orchestrator Logic').first().json.orchestrator_override }},\n  \"logged_at\": \"{{ $now }}\"\n}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "1a2b3c4d-0013-0013-0013-000000000013",
+      "name": "Audit Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2500, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "1a2b3c4d-0014-0014-0014-000000000014",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2750, 400]
+    }
+  ],
+  "connections": {
+    "Trigger: New Claim": {
+      "main": [
+        [{ "node": "Validate & Normalize", "type": "main", "index": 0 }]
+      ]
+    },
+    "Validate & Normalize": {
+      "main": [
+        [
+          { "node": "Load Customer Data", "type": "main", "index": 0 },
+          { "node": "Load Policy & Claims History", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Load Customer Data": {
+      "main": [
+        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Policy & Claims History": {
+      "main": [
+        [{ "node": "Merge Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Context": {
+      "main": [
+        [{ "node": "Call Claims Agent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Claims Agent": {
+      "main": [
+        [{ "node": "Apply Orchestrator Logic", "type": "main", "index": 0 }]
+      ]
+    },
+    "Apply Orchestrator Logic": {
+      "main": [
+        [{ "node": "Route: Auto?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route: Auto?": {
+      "main": [
+        [{ "node": "→ Auto Process", "type": "main", "index": 0 }],
+        [{ "node": "Route: SIU?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route: SIU?": {
+      "main": [
+        [{ "node": "→ SIU Referral", "type": "main", "index": 0 }],
+        [{ "node": "→ Manual Review (HITL)", "type": "main", "index": 0 }]
+      ]
+    },
+    "→ Auto Process": {
+      "main": [
+        [{ "node": "Audit Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "→ Manual Review (HITL)": {
+      "main": [
+        [{ "node": "Audit Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "→ SIU Referral": {
+      "main": [
+        [{ "node": "Audit Log", "type": "main", "index": 0 }]
+      ]
+    },
+    "Audit Log": {
+      "main": [
+        [{ "node": "Respond to Webhook", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "INSURE.AI — Error Handler"
+  },
+  "staticData": null,
+  "tags": ["insure-ai", "claims", "production"],
+  "triggerCount": 0,
+  "updatedAt": "2026-04-15T00:00:00.000Z",
+  "id": "insure-ai-claims-v1"
+}
