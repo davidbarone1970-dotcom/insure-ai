@@ -3,3 +3,22 @@ __pycache__/
 *.pyc
 .env
 .pytest_cache/
+# Node
+node_modules/
+package-lock.json
+
+# Backups & artefacts
+*.bak
+*.zip
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env
+.env.local
+
+# Random output files
+[Console]*.txt
