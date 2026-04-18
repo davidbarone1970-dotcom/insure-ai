@@ -3,7 +3,7 @@ INSURE.AI — Audit, KPI & Review API Routes
 Replaces the mock AUDIT_BASE_URL with real PostgreSQL writes.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -20,7 +20,20 @@ from db.repositories import (
 )
 
 
-# ── AUDIT LOG ─────────────────────────────────────────────────────────────────
+# ── ENUM MAPPING ──────────────────────────────────────────────────────────────
+# DB enum `pipeline_type` has values: lead, claims, retention, offer
+# (intentionally mixed singular/plural — absorbed here so UI/API stay clean).
+# Keys are the HITL entity_type values used in the UI + review API.
+
+ENTITY_TO_PIPELINE = {
+    "claim":     "claims",
+    "retention": "retention",
+    "offer":     "offer",
+    "lead":      "lead",
+}
+
+
+# ── REQUEST / RESPONSE MODELS ────────────────────────────────────────────────
 
 class AuditLogRequest(BaseModel):
     pipeline: str
@@ -31,8 +44,8 @@ class AuditLogRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
-    entity_type: str            # "claim" | "retention" | "offer"
-    entity_id: str              # claim_id / customer_id (for retention) / offer_trigger_id
+    entity_type: str            # "claim" | "retention" | "offer" | "lead"
+    entity_id: str              # claim_id / UUID for retention / offer_trigger_id / lead_id
     decision: str               # "approved" | "rejected" | "escalated" | "info_requested"
     reviewer_id: str
     note: Optional[str] = None
@@ -58,11 +71,14 @@ def register_routes(app: FastAPI):
     ):
         """
         Generic audit log endpoint — called by all n8n pipelines.
-        Also writes to the pipeline-specific table if data is present.
+        Normalizes pipeline value in case caller uses singular form
+        (e.g. 'claim' instead of 'claims').
         """
         repo = EventRepository(session)
+        pipeline = ENTITY_TO_PIPELINE.get(req.pipeline, req.pipeline)
+
         event = await repo.log(
-            pipeline=req.pipeline,
+            pipeline=pipeline,
             entity_id=req.entity_id,
             entity_type=req.entity_type,
             event_type=req.event_type,
@@ -120,6 +136,13 @@ def register_routes(app: FastAPI):
         Submit a human review decision for any entity type.
         Updates the relevant table and appends to audit log.
         """
+        # Validate entity_type upfront (prevents KeyError later in mapping)
+        if req.entity_type not in ENTITY_TO_PIPELINE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown entity_type: {req.entity_type}"
+            )
+
         event_repo = EventRepository(session)
 
         if req.entity_type == "claim":
@@ -137,7 +160,10 @@ def register_routes(app: FastAPI):
             try:
                 uid = UUID(req.entity_id)
             except ValueError:
-                raise HTTPException(status_code=400, detail="entity_id must be a UUID for retention")
+                raise HTTPException(
+                    status_code=400,
+                    detail="entity_id must be a UUID for retention"
+                )
             await repo.record_review(
                 event_id=uid,
                 decision=req.decision,
@@ -155,11 +181,16 @@ def register_routes(app: FastAPI):
             )
 
         else:
-            raise HTTPException(status_code=400, detail=f"Unknown entity_type: {req.entity_type}")
+            # Should not be reachable due to upfront validation,
+            # but kept as defense-in-depth.
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown entity_type: {req.entity_type}"
+            )
 
-        # Append audit event
+        # Append audit event (use mapped pipeline value to satisfy DB enum)
         await event_repo.log(
-            pipeline=req.entity_type,
+            pipeline=ENTITY_TO_PIPELINE[req.entity_type],
             entity_id=req.entity_id,
             entity_type=req.entity_type,
             event_type="human_review",
@@ -183,7 +214,7 @@ def register_routes(app: FastAPI):
         offers_kpi    = await OfferRepository(session).kpi_today()
 
         return KpiResponse(
-            date=datetime.utcnow().date().isoformat(),
+            date=datetime.now(timezone.utc).date().isoformat(),
             claims=claims_kpi,
             retention=retention_kpi,
             offers=offers_kpi,
@@ -217,6 +248,11 @@ def register_routes(app: FastAPI):
                     "queued_at": c.received_at.isoformat() if c.received_at else None,
                     "customer_id": c.customer_id,
                 })
+
+        # TODO: Extend queue to cover retention + offer pipelines.
+        # The HITL UI expects all four pipeline types — currently only claims
+        # are surfaced. Add analogous blocks once RetentionRepository and
+        # OfferRepository expose a list_pending_review() method.
 
         return {"queue": results, "total": len(results)}
 
