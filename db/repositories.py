@@ -235,6 +235,22 @@ class RetentionRepository:
             )
         )
 
+    async def list_pending_review(self, limit: int = 50) -> list[RetentionEvent]:
+        """High-churn retention events awaiting human routing decision."""
+        result = await self.session.execute(
+            select(RetentionEvent)
+            .where(
+                RetentionEvent.review_decision == 'pending',
+                RetentionEvent.final_route.in_(['call_task', 'generate_offer']),
+            )
+            .order_by(
+                RetentionEvent.churn_score.desc().nulls_last(),
+                RetentionEvent.triggered_at.asc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+    
     async def record_review(
         self,
         event_key: str,
@@ -371,6 +387,22 @@ class OfferRepository:
             .values(offer_rejected_at=utcnow())
         )
 
+    async def list_pending_review(self, limit: int = 50) -> list[Offer]:
+        """Offers awaiting sales handoff approval."""
+        result = await self.session.execute(
+            select(Offer)
+            .where(
+                Offer.review_decision == 'pending',
+                Offer.final_route.in_(['sales_handoff']),
+            )
+            .order_by(
+                Offer.cross_sell_score.desc().nulls_last(),
+                Offer.triggered_at.asc(),
+            )
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+    
     async def record_review(
         self,
         offer_trigger_id: str,
@@ -456,6 +488,7 @@ class OfferRepository:
             "avg_cross_sell_score": float(row.avg_cross_sell or 0),
             "acceptance_rate": row.accepted / max(row.total, 1),
         }
+    
 # ── LEAD REPOSITORY ────────────────────────────────────────────────────────
 # Paste this class into db/repositories.py, after the OfferRepository class.
 # Add Lead to the import at the top:

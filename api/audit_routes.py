@@ -225,22 +225,50 @@ def register_routes(app: FastAPI):
 
     # ── QUEUE ENDPOINT (HITL dashboard queue) ─────────────────────────────
 
+    # ── QUEUE ENDPOINT (HITL dashboard queue) ────────────────────────────────
     @app.get("/api/v1/review/queue", tags=["Human Review"])
     async def get_review_queue(
         pipeline: Optional[str] = None,
         session: AsyncSession = Depends(db_session),
     ):
-        """Returns all pending HITL items, optionally filtered by pipeline."""
+        """
+        Returns all pending HITL items across all 4 pipelines, sorted globally
+        by urgency (DESC) then queued_at (ASC).
+
+        Optional ?pipeline= filter (values: claim, lead, retention, offer)
+        restricts the result to a single pipeline.
+        """
+        # ── Helpers ──────────────────────────────────────────────────────────
+        ENUM_RANK = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+        def enum_rank(value: Optional[str]) -> int:
+            """Map priority/urgency enum string to numeric rank."""
+            return ENUM_RANK.get((value or "").lower(), 0)
+
+        def score_to_rank(score: Optional[float]) -> int:
+            """Map a 0..1 score to urgency rank (higher score = more urgent)."""
+            if score is None:
+                return 0
+            if score >= 0.8: return 3
+            if score >= 0.6: return 2
+            if score >= 0.4: return 1
+            return 0
+
+        RANK_TO_LABEL = {3: "critical", 2: "high", 1: "medium", 0: "low"}
+
         results = []
 
+        # ── Claims ───────────────────────────────────────────────────────────
         if not pipeline or pipeline == "claim":
             claims = await ClaimRepository(session).list_pending_review(limit=50)
             for c in claims:
+                rank = enum_rank(c.priority)
                 results.append({
                     "entity_type": "claim",
                     "entity_id": c.claim_id,
                     "id": str(c.id),
-                    "urgency": c.priority,
+                    "urgency": c.priority or "low",
+                    "urgency_rank": rank,
                     "subtype": c.classification,
                     "confidence": float(c.confidence or 0),
                     "risk_score": float(c.fraud_score or 0),
@@ -251,10 +279,80 @@ def register_routes(app: FastAPI):
                     "customer_id": c.customer_id,
                 })
 
-        # TODO: Extend queue to cover retention + offer pipelines.
-        # The HITL UI expects all four pipeline types — currently only claims
-        # are surfaced. Add analogous blocks once RetentionRepository and
-        # OfferRepository expose a list_pending_review() method.
+        # ── Retention ────────────────────────────────────────────────────────
+        if not pipeline or pipeline == "retention":
+            events = await RetentionRepository(session).list_pending_review(limit=50)
+            for e in events:
+                score = float(e.churn_score) if e.churn_score is not None else None
+                rank = score_to_rank(score)
+                results.append({
+                    "entity_type": "retention",
+                    "entity_id": e.retention_event_id,
+                    "id": str(e.id),
+                    "urgency": RANK_TO_LABEL[rank],
+                    "urgency_rank": rank,
+                    "subtype": e.trigger_type,
+                    "confidence": float(e.confidence or 0) if hasattr(e, "confidence") else 0.0,
+                    "risk_score": score or 0.0,
+                    "route": e.final_route,
+                    "reasoning": e.agent_reasoning if hasattr(e, "agent_reasoning") else None,
+                    "flags": e.flags if hasattr(e, "flags") else None,
+                    "queued_at": e.triggered_at.isoformat() if e.triggered_at else None,
+                    "customer_id": e.customer_id,
+                })
+
+        # ── Offer ────────────────────────────────────────────────────────────
+        if not pipeline or pipeline == "offer":
+            offers = await OfferRepository(session).list_pending_review(limit=50)
+            for o in offers:
+                # Prefer explicit urgency string if present, else derive from score
+                if o.urgency:
+                    rank = enum_rank(o.urgency)
+                else:
+                    score = float(o.cross_sell_score) if o.cross_sell_score is not None else None
+                    rank = score_to_rank(score)
+                results.append({
+                    "entity_type": "offer",
+                    "entity_id": o.offer_trigger_id,
+                    "id": str(o.id),
+                    "urgency": RANK_TO_LABEL[rank],
+                    "urgency_rank": rank,
+                    "subtype": o.recommended_product if hasattr(o, "recommended_product") else None,
+                    "confidence": float(o.confidence or 0) if hasattr(o, "confidence") else 0.0,
+                    "risk_score": float(o.cross_sell_score or 0),
+                    "route": o.final_route,
+                    "reasoning": o.agent_reasoning if hasattr(o, "agent_reasoning") else None,
+                    "flags": o.flags if hasattr(o, "flags") else None,
+                    "queued_at": o.triggered_at.isoformat() if o.triggered_at else None,
+                    "customer_id": o.customer_id,
+                })
+
+        # ── Lead ─────────────────────────────────────────────────────────────
+        if not pipeline or pipeline == "lead":
+            leads = await LeadRepository(session).list_pending_review(limit=50)
+            for l in leads:
+                rank = enum_rank(l.priority)
+                results.append({
+                    "entity_type": "lead",
+                    "entity_id": l.lead_id,
+                    "id": str(l.id),
+                    "urgency": l.priority or "low",
+                    "urgency_rank": rank,
+                    "subtype": l.qualification if hasattr(l, "qualification") else None,
+                    "confidence": float(l.confidence or 0),
+                    "risk_score": float(l.lead_score or 0) / 100.0 if l.lead_score else 0.0,
+                    "route": l.final_route,
+                    "reasoning": l.agent_reasoning if hasattr(l, "agent_reasoning") else None,
+                    "flags": l.flags if hasattr(l, "flags") else None,
+                    "queued_at": l.received_at.isoformat() if l.received_at else None,
+                    "customer_id": l.customer_id,
+                })
+
+        # ── Global sort: urgency DESC, queued_at ASC ─────────────────────────
+        results.sort(key=lambda x: (
+            -x["urgency_rank"],
+            x["queued_at"] or "9999",  # null queued_at → treat as oldest
+        ))
 
         return {"queue": results, "total": len(results)}
 
