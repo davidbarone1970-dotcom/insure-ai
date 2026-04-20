@@ -13,7 +13,7 @@ import logging
 
 from db.database import startup as db_startup, shutdown as db_shutdown
 from agents import claims_agent, retention_agent, offer_agent, lead_agent
-from api import audit_routes
+import os
 from api import audit_routes, customer_routes
 
 logging.basicConfig(
@@ -67,8 +67,13 @@ async def root():
 
 @app.get("/health", tags=["Health"])
 async def health():
-    return {"status": "ok", "agents": 3, "db": "postgresql"}
-
+    commit = os.getenv("RENDER_GIT_COMMIT", "local")
+    return {
+        "status": "ok",
+        "agents": 3,
+        "db": "postgresql",
+        "commit": commit[:7] if commit != "local" else "local",
+    }
 
 if __name__ == "__main__":
     import uvicorn
