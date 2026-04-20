@@ -16,6 +16,7 @@ from db.repositories import (
     ClaimRepository,
     RetentionRepository,
     OfferRepository,
+    LeadRepository,
     EventRepository,
 )
 
@@ -134,9 +135,10 @@ def register_routes(app: FastAPI):
     ):
         """
         Submit a human review decision for any entity type.
-        Updates the relevant table and appends to audit log.
+        - Idempotent: repeated calls for the same entity return the ORIGINAL review
+          with already_reviewed=true (no duplicate audit event is written).
+        - Returns 404 if the entity doesn't exist.
         """
-        # Validate entity_type upfront (prevents KeyError later in mapping)
         if req.entity_type not in ENTITY_TO_PIPELINE:
             raise HTTPException(
                 status_code=400,
@@ -145,58 +147,64 @@ def register_routes(app: FastAPI):
 
         event_repo = EventRepository(session)
 
-        if req.entity_type == "claim":
-            repo = ClaimRepository(session)
-            await repo.record_review(
-                claim_id=req.entity_id,
-                decision=req.decision,
-                reviewer_id=req.reviewer_id,
-                note=req.note,
+        try:
+            if req.entity_type == "claim":
+                result = await ClaimRepository(session).record_review(
+                    claim_id=req.entity_id,
+                    decision=req.decision,
+                    reviewer_id=req.reviewer_id,
+                    note=req.note,
+                )
+            elif req.entity_type == "retention":
+                result = await RetentionRepository(session).record_review(
+                    event_key=req.entity_id,
+                    decision=req.decision,
+                    reviewer_id=req.reviewer_id,
+                    note=req.note,
+                )
+            elif req.entity_type == "offer":
+                result = await OfferRepository(session).record_review(
+                    offer_trigger_id=req.entity_id,
+                    decision=req.decision,
+                    reviewer_id=req.reviewer_id,
+                    note=req.note,
+                )
+            elif req.entity_type == "lead":
+                result = await LeadRepository(session).record_review(
+                    lead_id=req.entity_id,
+                    decision=req.decision,
+                    reviewer_id=req.reviewer_id,
+                    note=req.note,
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown entity_type: {req.entity_type}"
+                )
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+        # Audit event only on first successful review.
+        if not result["was_already_reviewed"]:
+            await event_repo.log(
+                pipeline=ENTITY_TO_PIPELINE[req.entity_type],
+                entity_id=req.entity_id,
+                entity_type=req.entity_type,
+                event_type="human_review",
+                payload={
+                    "decision": req.decision,
+                    "reviewer_id": req.reviewer_id,
+                    "note": req.note,
+                },
             )
 
-        elif req.entity_type == "retention":
-            # For retention, entity_id is now the business key (retention_event_id).
-            repo = RetentionRepository(session)
-            await repo.record_review(
-                event_key=req.entity_id,
-                decision=req.decision,
-                reviewer_id=req.reviewer_id,
-                note=req.note,
-            )
-
-
-        elif req.entity_type == "offer":
-            repo = OfferRepository(session)
-            await repo.record_review(
-                offer_trigger_id=req.entity_id,
-                decision=req.decision,
-                reviewer_id=req.reviewer_id,
-                note=req.note,
-            )
-
-        else:
-            # Should not be reachable due to upfront validation,
-            # but kept as defense-in-depth.
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown entity_type: {req.entity_type}"
-            )
-
-        # Append audit event (use mapped pipeline value to satisfy DB enum)
-        await event_repo.log(
-            pipeline=ENTITY_TO_PIPELINE[req.entity_type],
-            entity_id=req.entity_id,
-            entity_type=req.entity_type,
-            event_type="human_review",
-            payload={
-                "decision": req.decision,
-                "reviewer_id": req.reviewer_id,
-                "note": req.note,
-            },
-        )
-
-        return {"reviewed": True, "decision": req.decision}
-
+        return {
+            "reviewed": True,
+            "already_reviewed": result["was_already_reviewed"],
+            "decision": result["decision"],
+            "reviewer_id": result["reviewer_id"],
+            "reviewed_at": result["reviewed_at"].isoformat() if result["reviewed_at"] else None,
+        }
 
     # ── KPI ENDPOINT (called by dashboard) ────────────────────────────────
 

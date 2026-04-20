@@ -94,17 +94,60 @@ class ClaimRepository:
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
-    ) -> None:
-        await self.session.execute(
+    ) -> dict:
+        """
+        Idempotent review recording.
+        - First call: updates the row, returns was_already_reviewed=False.
+        - Subsequent calls: returns the ORIGINAL review values with was_already_reviewed=True.
+        - If the claim doesn't exist: raises ValueError (route translates to 404).
+        """
+        # Atomic conditional update: only fires if not yet reviewed.
+        result = await self.session.execute(
             update(Claim)
-            .where(Claim.claim_id == claim_id)
+            .where(Claim.claim_id == claim_id, Claim.reviewed_at.is_(None))
             .values(
                 review_decision=decision,
                 reviewer_id=reviewer_id,
                 reviewer_note=note,
                 reviewed_at=utcnow(),
             )
+            .returning(
+                Claim.review_decision,
+                Claim.reviewer_id,
+                Claim.reviewer_note,
+                Claim.reviewed_at,
+            )
         )
+        row = result.first()
+        if row is not None:
+            return {
+                "was_already_reviewed": False,
+                "decision": row.review_decision,
+                "reviewer_id": row.reviewer_id,
+                "reviewer_note": row.reviewer_note,
+                "reviewed_at": row.reviewed_at,
+            }
+
+        # rowcount = 0: either already reviewed, or claim doesn't exist.
+        existing = await self.session.execute(
+            select(
+                Claim.review_decision,
+                Claim.reviewer_id,
+                Claim.reviewer_note,
+                Claim.reviewed_at,
+            ).where(Claim.claim_id == claim_id)
+        )
+        existing_row = existing.first()
+        if existing_row is None:
+            raise ValueError(f"Claim not found: {claim_id}")
+
+        return {
+            "was_already_reviewed": True,
+            "decision": existing_row.review_decision,
+            "reviewer_id": existing_row.reviewer_id,
+            "reviewer_note": existing_row.reviewer_note,
+            "reviewed_at": existing_row.reviewed_at,
+        }
 
     async def list_pending_review(self, limit: int = 50) -> list[Claim]:
         result = await self.session.execute(
@@ -198,17 +241,61 @@ class RetentionRepository:
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
-    ) -> None:
-        await self.session.execute(
+    ) -> dict:
+        """
+        Idempotent review recording.
+        - First call: updates the row, returns was_already_reviewed=False.
+        - Subsequent calls: returns the ORIGINAL review values with was_already_reviewed=True.
+        - If the retention event doesn't exist: raises ValueError (route translates to 404).
+        """
+        result = await self.session.execute(
             update(RetentionEvent)
-            .where(RetentionEvent.retention_event_id == event_key)
+            .where(
+                RetentionEvent.retention_event_id == event_key,
+                RetentionEvent.reviewed_at.is_(None),
+            )
             .values(
                 review_decision=decision,
                 reviewer_id=reviewer_id,
                 reviewer_note=note,
                 reviewed_at=utcnow(),
             )
+            .returning(
+                RetentionEvent.review_decision,
+                RetentionEvent.reviewer_id,
+                RetentionEvent.reviewer_note,
+                RetentionEvent.reviewed_at,
+            )
         )
+        row = result.first()
+        if row is not None:
+            return {
+                "was_already_reviewed": False,
+                "decision": row.review_decision,
+                "reviewer_id": row.reviewer_id,
+                "reviewer_note": row.reviewer_note,
+                "reviewed_at": row.reviewed_at,
+            }
+
+        existing = await self.session.execute(
+            select(
+                RetentionEvent.review_decision,
+                RetentionEvent.reviewer_id,
+                RetentionEvent.reviewer_note,
+                RetentionEvent.reviewed_at,
+            ).where(RetentionEvent.retention_event_id == event_key)
+        )
+        existing_row = existing.first()
+        if existing_row is None:
+            raise ValueError(f"Retention event not found: {event_key}")
+
+        return {
+            "was_already_reviewed": True,
+            "decision": existing_row.review_decision,
+            "reviewer_id": existing_row.reviewer_id,
+            "reviewer_note": existing_row.reviewer_note,
+            "reviewed_at": existing_row.reviewed_at,
+        }
 
     async def kpi_today(self) -> dict:
         today = utcnow().date()
@@ -290,17 +377,61 @@ class OfferRepository:
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
-    ) -> None:
-        await self.session.execute(
+    ) -> dict:
+        """
+        Idempotent review recording.
+        - First call: updates the row, returns was_already_reviewed=False.
+        - Subsequent calls: returns the ORIGINAL review values with was_already_reviewed=True.
+        - If the offer doesn't exist: raises ValueError (route translates to 404).
+        """
+        result = await self.session.execute(
             update(Offer)
-            .where(Offer.offer_trigger_id == offer_trigger_id)
+            .where(
+                Offer.offer_trigger_id == offer_trigger_id,
+                Offer.reviewed_at.is_(None),
+            )
             .values(
                 review_decision=decision,
                 reviewer_id=reviewer_id,
                 reviewer_note=note,
                 reviewed_at=utcnow(),
             )
+            .returning(
+                Offer.review_decision,
+                Offer.reviewer_id,
+                Offer.reviewer_note,
+                Offer.reviewed_at,
+            )
         )
+        row = result.first()
+        if row is not None:
+            return {
+                "was_already_reviewed": False,
+                "decision": row.review_decision,
+                "reviewer_id": row.reviewer_id,
+                "reviewer_note": row.reviewer_note,
+                "reviewed_at": row.reviewed_at,
+            }
+
+        existing = await self.session.execute(
+            select(
+                Offer.review_decision,
+                Offer.reviewer_id,
+                Offer.reviewer_note,
+                Offer.reviewed_at,
+            ).where(Offer.offer_trigger_id == offer_trigger_id)
+        )
+        existing_row = existing.first()
+        if existing_row is None:
+            raise ValueError(f"Offer not found: {offer_trigger_id}")
+
+        return {
+            "was_already_reviewed": True,
+            "decision": existing_row.review_decision,
+            "reviewer_id": existing_row.reviewer_id,
+            "reviewer_note": existing_row.reviewer_note,
+            "reviewed_at": existing_row.reviewed_at,
+        }
 
     async def kpi_today(self) -> dict:
         today = utcnow().date()
@@ -380,17 +511,61 @@ class LeadRepository:
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
-    ) -> None:
-        await self.session.execute(
+    ) -> dict:
+        """
+        Idempotent review recording.
+        - First call: updates the row, returns was_already_reviewed=False.
+        - Subsequent calls: returns the ORIGINAL review values with was_already_reviewed=True.
+        - If the lead doesn't exist: raises ValueError (route translates to 404).
+        """
+        result = await self.session.execute(
             update(Lead)
-            .where(Lead.lead_id == lead_id)
+            .where(
+                Lead.lead_id == lead_id,
+                Lead.reviewed_at.is_(None),
+            )
             .values(
                 review_decision=decision,
                 reviewer_id=reviewer_id,
                 reviewer_note=note,
                 reviewed_at=utcnow(),
             )
+            .returning(
+                Lead.review_decision,
+                Lead.reviewer_id,
+                Lead.reviewer_note,
+                Lead.reviewed_at,
+            )
         )
+        row = result.first()
+        if row is not None:
+            return {
+                "was_already_reviewed": False,
+                "decision": row.review_decision,
+                "reviewer_id": row.reviewer_id,
+                "reviewer_note": row.reviewer_note,
+                "reviewed_at": row.reviewed_at,
+            }
+
+        existing = await self.session.execute(
+            select(
+                Lead.review_decision,
+                Lead.reviewer_id,
+                Lead.reviewer_note,
+                Lead.reviewed_at,
+            ).where(Lead.lead_id == lead_id)
+        )
+        existing_row = existing.first()
+        if existing_row is None:
+            raise ValueError(f"Lead not found: {lead_id}")
+
+        return {
+            "was_already_reviewed": True,
+            "decision": existing_row.review_decision,
+            "reviewer_id": existing_row.reviewer_id,
+            "reviewer_note": existing_row.reviewer_note,
+            "reviewed_at": existing_row.reviewed_at,
+        }
 
     async def record_conversion(
         self,
