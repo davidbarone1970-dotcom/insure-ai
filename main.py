@@ -14,6 +14,7 @@ import logging
 from db.database import startup as db_startup, shutdown as db_shutdown
 from agents import claims_agent, retention_agent, offer_agent, lead_agent
 from api import audit_routes
+from api import audit_routes, customer_routes
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +51,7 @@ retention_agent.register_routes(app)
 offer_agent.register_routes(app)
 lead_agent.register_routes(app)
 audit_routes.register_routes(app)
+customer_routes.register_routes(app)
 
 # â”€â”€ GLOBAL HEALTH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
