@@ -206,6 +206,7 @@ def register_routes(app: FastAPI):
                 "recommended_route":     result.recommended_route,
                 "final_route":           result.recommended_route,
                 "agent_processed_at":    datetime.utcnow(),
+                "routed_at": datetime.utcnow(),
                 "customer_snapshot": {
                     "customer_since_years":   claim.customer_since_years,
                     "previous_claims_count":  claim.previous_claims_count,

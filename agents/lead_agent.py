@@ -1,4 +1,4 @@
-﻿"""
+"""
 INSURE.AI — Lead Intelligence Agent
 FastAPI endpoint: POST /agent/lead
 """
@@ -226,6 +226,8 @@ def register_routes(app: FastAPI):
                 "flags":                  result.flags,
                 "recommended_route":      result.recommended_route,
                 "final_route":            final_route,
+                "agent_processed_at": datetime.utcnow(),
+                "routed_at": datetime.utcnow(),
                 "customer_snapshot": {
                     "company_name":      lead.company_name,
                     "contact_name":      lead.contact_name,
