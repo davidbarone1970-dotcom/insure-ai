@@ -96,6 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_claims_fraud_score ON claims (fraud_score DESC)
 
 CREATE TABLE IF NOT EXISTS retention_events (
   id                     UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
+  retention_event_id     VARCHAR(64)    UNIQUE,
   customer_id            VARCHAR(64)    NOT NULL,
   trigger_type           VARCHAR(64)    NOT NULL,
   trigger_detail         TEXT,

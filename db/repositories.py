@@ -178,13 +178,13 @@ class RetentionRepository:
 
     async def record_outcome(
         self,
-        event_id: UUID,
+        event_key: str,
         outcome: str,
         action_taken: Optional[str] = None,
     ) -> None:
         await self.session.execute(
             update(RetentionEvent)
-            .where(RetentionEvent.id == event_id)
+            .where(RetentionEvent.retention_event_id == event_key)
             .values(
                 outcome=outcome,
                 action_taken=action_taken,
@@ -194,14 +194,14 @@ class RetentionRepository:
 
     async def record_review(
         self,
-        event_id: UUID,
+        event_key: str,
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
     ) -> None:
         await self.session.execute(
             update(RetentionEvent)
-            .where(RetentionEvent.id == event_id)
+            .where(RetentionEvent.retention_event_id == event_key)
             .values(
                 review_decision=decision,
                 reviewer_id=reviewer_id,

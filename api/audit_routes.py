@@ -45,7 +45,7 @@ class AuditLogRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     entity_type: str            # "claim" | "retention" | "offer" | "lead"
-    entity_id: str              # claim_id / UUID for retention / offer_trigger_id / lead_id
+    entity_id: str              # business key: claim_id / retention_event_id / offer_trigger_id / lead_id
     decision: str               # "approved" | "rejected" | "escalated" | "info_requested"
     reviewer_id: str
     note: Optional[str] = None
@@ -155,21 +155,15 @@ def register_routes(app: FastAPI):
             )
 
         elif req.entity_type == "retention":
-            # For retention, entity_id is the UUID of the retention_event row
+            # For retention, entity_id is now the business key (retention_event_id).
             repo = RetentionRepository(session)
-            try:
-                uid = UUID(req.entity_id)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail="entity_id must be a UUID for retention"
-                )
             await repo.record_review(
-                event_id=uid,
+                event_key=req.entity_id,
                 decision=req.decision,
                 reviewer_id=req.reviewer_id,
                 note=req.note,
             )
+
 
         elif req.entity_type == "offer":
             repo = OfferRepository(session)
@@ -275,16 +269,12 @@ def register_routes(app: FastAPI):
         await OfferRepository(session).record_rejection(offer_trigger_id)
         return {"updated": True}
 
-    @app.post("/api/v1/retention/{event_id}/outcome", tags=["Retention"])
+    @app.post("/api/v1/retention/{event_key}/outcome", tags=["Retention"])
     async def retention_outcome(
-        event_id: str,
+        event_key: str,
         outcome: str,
         action_taken: Optional[str] = None,
         session: AsyncSession = Depends(db_session),
     ):
-        try:
-            uid = UUID(event_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid UUID")
-        await RetentionRepository(session).record_outcome(uid, outcome, action_taken)
+        await RetentionRepository(session).record_outcome(event_key, outcome, action_taken)
         return {"updated": True}

@@ -103,6 +103,7 @@ class RetentionEvent(Base):
 
     id:                    Mapped[uuid.UUID]        = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     customer_id:           Mapped[str]              = mapped_column(String(64), nullable=False)
+    retention_event_id:    Mapped[Optional[str]]    = mapped_column(String(64), unique=True, nullable=True)
     trigger_type:          Mapped[str]              = mapped_column(String(64), nullable=False)
     trigger_detail:        Mapped[Optional[str]]    = mapped_column(Text)
 

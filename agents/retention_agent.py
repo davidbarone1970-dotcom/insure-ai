@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class RetentionInput(BaseModel):
     customer_id: str
+    retention_event_id: Optional[str] = None
     trigger_type: str                # "login_anomaly", "portal_activity", "renewal_upcoming",
                                      # "competitor_signal", "support_contact", "payment_late", "manual"
     trigger_detail: Optional[str] = None
@@ -224,6 +225,7 @@ def register_routes(app: FastAPI):
             event_repo     = EventRepository(session)
 
             await retention_repo.create({
+                "retention_event_id":            data.retention_event_id,
                 "customer_id":            data.customer_id,
                 "trigger_type":           data.trigger_type,
                 "trigger_detail":         data.trigger_detail,
