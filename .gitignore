@@ -22,3 +22,5 @@ Thumbs.db
 
 # Random output files
 [Console]*.txt
+# Legacy scratch folder (pre-n8n/workflows snapshot, April 11-14)
+workflows/

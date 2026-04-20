@@ -1,0 +1,460 @@
+{
+  "name": "Insure.AI - Offer Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "offer/trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "75fd2484-3bd1-4b6e-bc47-41779bad10af",
+      "name": "Trigger: Offer Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -496,
+        112
+      ],
+      "webhookId": "insure-ai-offer-trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\n\nconst required = ['customer_id', 'trigger_type'];\nconst missing = required.filter(f => !body[f]);\nif (missing.length > 0) {\n  throw new Error(`Missing fields: ${missing.join(', ')}`);\n}\n\nconst validTriggers = [\n  'renewal', 'lifecycle_event', 'segment_campaign',\n  'cross_sell_signal', 'upsell_signal', 'retention_linked'\n];\n\nif (!validTriggers.includes(body.trigger_type)) {\n  throw new Error(`Unknown trigger_type: ${body.trigger_type}`);\n}\n\nreturn [{\n  json: {\n    offer_trigger_id: `OT-${Date.now()}`,\n    customer_id: body.customer_id,\n    trigger_type: body.trigger_type,\n    triggered_at: new Date().toISOString(),\n    pipeline: 'offer',\n    // Pass-through optional fields\n    offer_type_hint: body.offer_type_hint || null,\n    source_pipeline: body.source_pipeline || 'direct'\n  }\n}];"
+      },
+      "id": "45505418-e98b-4efc-aec7-624e8310a9a1",
+      "name": "Validate & Init Offer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://insure-ai-wql4.onrender.com/api/v1/customers/{{ $json.customer_id }}/profile",
+        "options": {
+          "timeout": 8000
+        }
+      },
+      "id": "2fe328c1-f9e8-481f-bce6-cc15f0458412",
+      "name": "Load Customer Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/api/v1/products/available?segment={{ $json.segment }}&exclude={{ $json.existing_products }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "12613e82-740d-4308-be7c-55249b5abe45",
+      "name": "Load Product Catalogue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        208
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/api/v1/customers/{{ $json.customer_id }}/offers?days=90",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "1a8bca23-a4bb-447b-b228-a14a4c179ce1",
+      "name": "Load Recent Offers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        432
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge all context for the Offer Agent\nconst trigger = $('Validate & Init Offer').first().json;\nconst profile = {};\nconst products = {};\nconst recentOffers = {};\n\nconst enriched = {\n  offer_trigger_id: trigger.offer_trigger_id,\n  customer_id: trigger.customer_id,\n  trigger_type: trigger.trigger_type,\n\n  // Customer\n  customer_name: profile.full_name || null,\n  segment: profile.segment || null,\n  age_group: profile.age_group || null,\n  customer_since_years: profile.years_as_customer || null,\n  annual_premium: profile.total_annual_premium || null,\n  customer_ltv: profile.ltv_estimate || null,\n\n  // Coverage\n  existing_products: profile.active_product_keys || [],\n\n  // Life events & context\n  recent_life_events: profile.recent_life_events || [],\n  industry: profile.company_industry || null,\n  employee_count: profile.company_employees || null,\n  annual_revenue: profile.company_annual_revenue || null,\n\n  // Offer history\n  offers_sent_last_90_days: recentOffers.product_keys || [],\n\n  // Available products (from catalogue or default)\n  available_products: products.available_keys || [\n    'hausrat', 'haftpflicht', 'leben', 'unfall', 'rechtsschutz',\n    'cyber_privat', 'cyber_business', 'kfz_haftpflicht', 'vollkasko',\n    'reise', 'krankentaggeld', 'gebaeude', 'betrieb'\n  ]\n};\n\nreturn [{ json: enriched }];"
+      },
+      "id": "cbdeba28-4780-4d62-ba75-e45a23024eea",
+      "name": "Build Offer Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/agent/offer",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "7696be15-bb17-4550-9ed5-28762e792ccc",
+      "name": "Call Offer Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Orchestrator: business rule validation for offers\nconst agent = $json;\n\nlet finalRoute = agent.recommended_route;\nlet overrideReason = null;\n\n// Rule 1: High-value offers (> CHF 5000/year estimated) always need sales handoff\nconst premiumStr = agent.estimated_annual_premium || '';\nconst premiumMax = parseFloat(premiumStr.replace(/[^0-9.]/g, '').split(' ').pop()) || 0;\nif (premiumMax > 5000 && finalRoute === 'automated_offer') {\n  finalRoute = 'sales_handoff';\n  overrideReason = `Estimated premium > CHF 5000 — escalated to sales`;\n}\n\n// Rule 2: Low cross-sell score despite automated route\nif (agent.cross_sell_score < 0.50 && finalRoute === 'automated_offer') {\n  finalRoute = 'nurturing_sequence';\n  overrideReason = `Cross-sell score too low for direct offer (${agent.cross_sell_score.toFixed(2)})` ;\n}\n\n// Rule 3: Duplicate prevention — product already in recent offers\nconst recentOffers = $('Build Offer Context').first().json.offers_sent_last_90_days || [];\nif (recentOffers.includes(agent.recommended_product) && finalRoute === 'automated_offer') {\n  finalRoute = 'nurturing_sequence';\n  overrideReason = `${agent.recommended_product} already offered in last 90 days — moved to nurturing`;\n}\n\nreturn [{\n  json: {\n    ...agent,\n    final_route: finalRoute,\n    orchestrator_override: finalRoute !== agent.recommended_route,\n    override_reason: overrideReason,\n    orchestrated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "e83840d0-e1db-4cbc-9bf9-ad1af18720f4",
+      "name": "Apply Orchestrator Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "route-auto-offer",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "automated_offer",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ad67ee5c-c7a5-4b60-909a-58aa3d4b9f71",
+      "name": "Route: Auto Offer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {},
+          "conditions": [
+            {
+              "id": "route-sales",
+              "leftValue": "={{ $json.final_route }}",
+              "rightValue": "sales_handoff",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b7858f10-2451-4f93-81a7-8f39238a7039",
+      "name": "Route: Sales?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// AUTOMATED OFFER: Generate & send personalized offer via email/portal\nconst data = $json;\nreturn [{\n  json: {\n    action: 'automated_offer',\n    offer_trigger_id: data.offer_trigger_id,\n    customer_id: data.customer_id,\n    product: data.recommended_product,\n    product_display_name: data.product_display_name,\n    personalization_angle: data.personalization_angle,\n    estimated_premium: data.estimated_annual_premium,\n    channel: data.channel_recommendation,\n    urgency: data.urgency,\n    cross_sell_score: data.cross_sell_score,\n    message: `Automated offer: ${data.product_display_name} → ${data.customer_id}`,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aed18bb2-7b55-4dcc-8bbf-63f37dff8cac",
+      "name": "→ Send Automated Offer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// SALES HANDOFF: Create lead/task in sales CRM\nconst data = $json;\nreturn [{\n  json: {\n    action: 'sales_handoff',\n    offer_trigger_id: data.offer_trigger_id,\n    customer_id: data.customer_id,\n    product: data.recommended_product,\n    product_display_name: data.product_display_name,\n    estimated_premium: data.estimated_annual_premium,\n    personalization_angle: data.personalization_angle,\n    cross_sell_score: data.cross_sell_score,\n    reasoning: data.reasoning,\n    flags: data.flags,\n    assign_to: 'sales_team',\n    priority: data.urgency === 'high' ? 'HIGH' : 'MEDIUM',\n    message: `Sales task: ${data.product_display_name} for ${data.customer_id}`,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "ee619e60-dd9f-4d93-abd1-213842f2aa61",
+      "name": "→ Sales Handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// NURTURING: Add to email nurturing sequence\nconst data = $json;\nreturn [{\n  json: {\n    action: 'nurturing_sequence',\n    offer_trigger_id: data.offer_trigger_id,\n    customer_id: data.customer_id,\n    product: data.recommended_product,\n    personalization_angle: data.personalization_angle,\n    sequence_name: `nurture_${data.recommended_product}`,\n    cross_sell_score: data.cross_sell_score,\n    override_reason: data.override_reason,\n    message: `Nurturing sequence started: ${data.recommended_product} for ${data.customer_id}`,\n    created_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "61d9a49d-d877-4811-85ff-bec7b23d887f",
+      "name": "→ Nurturing Sequence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/api/v1/audit/log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"pipeline\": \"offer\",\n  \"offer_trigger_id\": \"{{ $json.offer_trigger_id }}\",\n  \"customer_id\": \"{{ $json.customer_id }}\",\n  \"action\": \"{{ $json.action }}\",\n  \"product\": \"{{ $('Apply Orchestrator Logic').first().json.recommended_product }}\",\n  \"cross_sell_score\": {{ $('Apply Orchestrator Logic').first().json.cross_sell_score }},\n  \"final_route\": \"{{ $('Apply Orchestrator Logic').first().json.final_route }}\",\n  \"orchestrator_override\": {{ $('Apply Orchestrator Logic').first().json.orchestrator_override }},\n  \"logged_at\": \"{{ $now }}\"\n}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "b3a30012-eaa7-4d8e-b297-0f456508f024",
+      "name": "Store & Log",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1808,
+        256
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "c0ae71f7-b9e0-4c42-9b38-e5c99a7d8f21",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        256
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Trigger: Offer Event": {
+      "main": [
+        [
+          {
+            "node": "Validate & Init Offer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Init Offer": {
+      "main": [
+        [
+          {
+            "node": "Load Customer Profile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Product Catalogue",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Load Recent Offers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Customer Profile": {
+      "main": [
+        [
+          {
+            "node": "Build Offer Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Product Catalogue": {
+      "main": [
+        [
+          {
+            "node": "Build Offer Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Recent Offers": {
+      "main": [
+        [
+          {
+            "node": "Build Offer Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Offer Context": {
+      "main": [
+        [
+          {
+            "node": "Call Offer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Offer Agent": {
+      "main": [
+        [
+          {
+            "node": "Apply Orchestrator Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Orchestrator Logic": {
+      "main": [
+        [
+          {
+            "node": "Route: Auto Offer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Auto Offer?": {
+      "main": [
+        [
+          {
+            "node": "→ Send Automated Offer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route: Sales?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Sales?": {
+      "main": [
+        [
+          {
+            "node": "→ Sales Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "→ Nurturing Sequence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "→ Send Automated Offer": {
+      "main": [
+        [
+          {
+            "node": "Store & Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "→ Sales Handoff": {
+      "main": [
+        [
+          {
+            "node": "Store & Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "→ Nurturing Sequence": {
+      "main": [
+        [
+          {
+            "node": "Store & Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store & Log": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "856e9bf9-a237-4893-a363-5584ec72cfc1",
+  "meta": {
+    "instanceId": "fe8b5a3581559b2bc3e3e6d38213313aac744c4c306718338a70631bf1bb73c5"
+  },
+  "id": "RUWOjSGM6vBaZuQW",
+  "tags": []
+}

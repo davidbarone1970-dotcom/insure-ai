@@ -1,0 +1,699 @@
+{
+  "name": "Insure.AI - Lead Processing Flow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "insure-ai-lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "edd34440-da66-4493-ae17-ab3c03669599",
+      "name": "Webhook - New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1056,
+        -80
+      ],
+      "webhookId": "insure-ai-lead-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7002246a-c9a8-4641-a9a7-c100ec7f3f3b",
+              "name": "=name",
+              "value": "={{ $json.body.name || $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "df360cbf-ab80-485a-ac25-87cbd3aff5fb",
+              "name": "=company",
+              "value": "={{ $json.body.company || $json.company }}",
+              "type": "string"
+            },
+            {
+              "id": "98516c93-e165-4b5f-bc7c-0e6b8c5a4721",
+              "name": "=email",
+              "value": "={{ $json.body.email || $json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "05b1e8a9-bce4-4506-b910-8d28a8c11d4d",
+              "name": "=company_size",
+              "value": "={{ Number($json.body.company_size || $json.company_size) }}",
+              "type": "string"
+            },
+            {
+              "id": "9e0e21a5-f8e8-4459-9a90-b8ccbe14fb68",
+              "name": "=interaction_level",
+              "value": "={{ Number($json.body.interaction_level || $json.interaction_level) }}",
+              "type": "string"
+            },
+            {
+              "id": "0f49db76-8af6-4709-8880-e9d390265c75",
+              "name": "=existing_customer",
+              "value": "={{ $json.body.existing_customer === true || $json.existing_customer === true }}",
+              "type": "string"
+            },
+            {
+              "id": "14ab4f89-6717-4bc6-8e13-602d74cf2429",
+              "name": "=source",
+              "value": "={{ $json.body.source || $json.source || \"web_form\" }}",
+              "type": "string"
+            },
+            {
+              "id": "2f104ae0-bf37-450e-ac44-cddde8bfca72",
+              "name": "lead_id",
+              "value": "={{ $json.body.lead_id || $json.lead_id }}",
+              "type": "string"
+            },
+            {
+              "id": "7f8fa684-11ac-4643-b347-2c94dccea574",
+              "name": "segment",
+              "value": "={{ $json.body.segment || $json.segment }}",
+              "type": "string"
+            },
+            {
+              "id": "1fd51af9-f02f-4c08-a8e4-52ad81c1a776",
+              "name": "product_interest",
+              "value": "={{ $json.body.product_interest || $json.product_interest }}",
+              "type": "string"
+            },
+            {
+              "id": "6ae5aab1-754b-4942-8414-45dfdc2b3633",
+              "name": "estimated_annual_premium",
+              "value": "={{ Number($json.body.estimated_annual_premium || $json.estimated_annual_premium) }}",
+              "type": "number"
+            },
+            {
+              "id": "a99e0025-583c-414d-aed2-88e56effd5b1",
+              "name": "competitor_offer",
+              "value": "={{ $json.body.competitor_offer === true || $json.competitor_offer === true || $json.body.competitor_offer === \"true\" || $json.competitor_offer === \"true\" }}",
+              "type": "string"
+            },
+            {
+              "id": "378bf7df-0c7f-47c2-9bcb-9e712b4ec549",
+              "name": "region",
+              "value": "={{ $json.body.region || $json.region }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": "={{ false }}",
+        "options": {}
+      },
+      "id": "7a1e7d56-5c38-4c8c-8b59-0cd1c54310d2",
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -848,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "=  {{ $json.name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "cond-2",
+              "leftValue": "={{ $json.company}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "cond-3",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "@",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "65443b73-bb5b-471a-a367-92291eaa30c9",
+      "name": "Validate Lead",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/agent/lead",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\n  \"lead_id\": \"{{ $json.lead_id }}\",\n  \"source\": \"{{ $json.source }}\",\n  \"segment\": \"{{ $json.segment }}\",\n  \"product_interest\": \"{{ $json.product_interest }}\",\n  \"company_name\": \"{{ $json.company_name }}\",\n  \"contact_name\": \"{{ $json.contact_name }}\",\n  \"region\": \"{{ $json.region }}\",\n  \"company_size\": \"{{ $json.company_size }}\",\n  \"estimated_annual_premium\": \"{{ $json.estimated_annual_premium }}\",\n  \"interaction_level\": \"{{ $json.interaction_level }}\",\n  \"existing_customer\": \"{{ $json.existing_customer }}\",\n  \"competitor_offer\": \"{{ $json.competitor_offer }}\",\n  \"notes\": \"{{ $json.notes }}\"\n}",
+        "options": {}
+      },
+      "id": "65990e8d-5740-4558-a302-05d3f4fca085",
+      "name": "HTTP Request - Decision Engine",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -464,
+        -400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.recommended_route }}",
+                    "rightValue": "sales_priority",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ed867c2c-6da0-42e5-ba59-09f595e524f5"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Sales"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.recommended_route }}",
+                    "rightValue": "automation_only",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "251c3b7c-6d91-4f4b-9cd4-ec92fbc9b9fb"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Automation"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "3bbabe4c-c888-4c85-8c38-fead46b5cbc4",
+      "name": "Orchestrator Routing",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -320,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "55306e0b-f665-41d1-b2d2-3b35bece1549",
+              "name": "route_confirmed",
+              "value": "Sales",
+              "type": "string"
+            },
+            {
+              "id": "7a67dd31-23d4-4d85-b504-7bb2b552b5f9",
+              "name": "action",
+              "value": "Create CRM Task",
+              "type": "string"
+            },
+            {
+              "id": "c902da46-2e53-454f-addf-1c40ed21e601",
+              "name": "owner_confirmed",
+              "value": "Sales Team",
+              "type": "string"
+            },
+            {
+              "id": "f497ead4-b2f3-482f-9fb6-194e7c4d2d29",
+              "name": "processing_status",
+              "value": "Routed to Sales",
+              "type": "string"
+            },
+            {
+              "id": "75868ca1-8ee1-4057-bf7a-c1278a8ebdb9",
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "928a2bd8-08ac-4eca-a161-3c86ac2a189d",
+      "name": "Sales Route",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -96,
+        -608
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "auto-1",
+              "name": "route_confirmed",
+              "value": "Automation",
+              "type": "string"
+            },
+            {
+              "id": "auto-2",
+              "name": "action",
+              "value": "Send Automated Follow-up",
+              "type": "string"
+            },
+            {
+              "id": "auto-3",
+              "name": "owner_confirmed",
+              "value": "System",
+              "type": "string"
+            },
+            {
+              "id": "auto-4",
+              "name": "processing_status",
+              "value": "Routed to Automation",
+              "type": "string"
+            },
+            {
+              "id": "auto-5",
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "d4873077-e780-49e0-b603-3eed0ec64bd5",
+      "name": "Automation Route",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -96,
+        -368
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fall-1",
+              "name": "route_confirmed",
+              "value": "Fallback",
+              "type": "string"
+            },
+            {
+              "id": "fall-2",
+              "name": "action",
+              "value": "Flag for Manual Review",
+              "type": "string"
+            },
+            {
+              "id": "fall-3",
+              "name": "owner_confirmed",
+              "value": "Operations",
+              "type": "string"
+            },
+            {
+              "id": "fall-4",
+              "name": "processing_status",
+              "value": "Routed to Fallback",
+              "type": "string"
+            },
+            {
+              "id": "fall-5",
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "0a76bb2d-3353-4eef-8d39-641a054c16ff",
+      "name": "Fallback Route",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -96,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "id": "c9f21f33-019d-4397-b22d-ff46fc67e030",
+      "name": "Merge Routes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        432,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst now = new Date().toISOString();\n\nreturn [{\n  json: {\n    lead_id: `${item.email}-${Date.now()}`,\n    timestamp: now,\n    name: item.name,\n    company: item.company,\n    email: item.email,\n    company_size: item.company_size,\n    interaction_level: item.interaction_level,\n    existing_customer: item.existing_customer,\n    source: item.source,\n    segment: item.segment,\n    history_flag: item.history_flag,\n    score: item.score,\n    route: item.route,\n    priority: item.priority,\n    final_action: item.final_action,\n    owner: item.owner,\n    status: item.status || 'processed'\n  }\n}];"
+      },
+      "id": "6051475c-2f8f-4a2a-807a-179290cbfb74",
+      "name": "Build Log Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "c3701715-6cc5-43f1-9188-f897178cc73c",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        816,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "inv-1",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "inv-2",
+              "name": "message",
+              "value": "Invalid lead: missing required fields (name, company, or valid email)",
+              "type": "string"
+            },
+            {
+              "id": "inv-3",
+              "name": "timestamp",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e0b3e546-27c1-4c64-bf11-edea0165ae65",
+      "name": "Invalid Lead Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -432,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "3959169f-40d7-4682-bf3f-609de65cb67e",
+      "name": "Respond Invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -96,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://insure-ai-wql4.onrender.com/api/v1/audit/log",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "ngrok-skip-browser-warning",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"event_id\":\"{{ $execution.id }}\",\"entity_id\":\"{{ $json.lead_id }}\",\"customer_id\":\"{{ $('Normalize Lead Data').item.json.email }}\",\"pipeline\":\"lead\",\"route\":\"{{ $json.recommended_route }}\",\"confidence\":{{ $json.confidence }},\"urgency\":\"{{ $json.score >= 70 ? 'high' : $json.score >= 40 ? 'medium' : 'low' }}\",\"title\":\"{{ $('Normalize Lead Data').item.json.segment }} Lead — Score {{ $json.score }}\",\"detail\":\"{{ $json.reasoning }}\",\"lead_score\":{{ $json.score }},\"segment\":\"{{ $('Normalize Lead Data').item.json.segment }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        -496
+      ],
+      "id": "9337388d-7f52-4c9f-bb08-6e2eafbc6167",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook - New Lead": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Validate Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Lead": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Decision Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Lead Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Decision Engine": {
+      "main": [
+        [
+          {
+            "node": "Orchestrator Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orchestrator Routing": {
+      "main": [
+        [
+          {
+            "node": "Sales Route",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Automation Route",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sales Route": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Automation Route": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Route": {
+      "main": [
+        []
+      ]
+    },
+    "Merge Routes": {
+      "main": [
+        [
+          {
+            "node": "Build Log Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Log Payload": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Invalid Lead Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Invalid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Merge Routes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge Routes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c46421d9-cdec-4f32-b709-3c81ab71affb",
+  "meta": {
+    "instanceId": "fe8b5a3581559b2bc3e3e6d38213313aac744c4c306718338a70631bf1bb73c5"
+  },
+  "id": "zQ6mtusCSEd4WOR5",
+  "tags": []
+}
