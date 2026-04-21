@@ -2,6 +2,13 @@
 INSURE.AI — Repository Layer
 All database read/write operations per pipeline.
 Agents call these instead of raw SQL.
+
+ADR-002 Phase 2 changes:
+- Import: RetentionEvent renamed to Retention
+- All RetentionRepository internals reference Retention class + retention_id column
+- OfferRepository: offer_trigger_id parameter/column renamed to offer_id
+  (method get_by_trigger_id renamed to get_by_offer_id)
+- Encoding cleanup (Mojibake removed)
 """
 
 from datetime import datetime, timezone
@@ -11,16 +18,16 @@ from uuid import UUID
 from sqlalchemy import select, update, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Claim, RetentionEvent, Offer, PipelineEvent, Lead
+from db.models import Claim, Retention, Offer, PipelineEvent, Lead
 
 
-# ── HELPERS ───────────────────────────────────────────────────────────────────
+# ── HELPERS ──────────────────────────────────────────────────────────────────
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── AUDIT EVENT REPOSITORY ────────────────────────────────────────────────────
+# ── AUDIT EVENT REPOSITORY ───────────────────────────────────────────────────
 
 class EventRepository:
     """Append-only audit log for all pipeline events."""
@@ -56,7 +63,7 @@ class EventRepository:
         return list(result.scalars().all())
 
 
-# ── CLAIMS REPOSITORY ─────────────────────────────────────────────────────────
+# ── CLAIMS REPOSITORY ────────────────────────────────────────────────────────
 
 class ClaimRepository:
 
@@ -189,33 +196,34 @@ class ClaimRepository:
         }
 
 
-# ── RETENTION REPOSITORY ──────────────────────────────────────────────────────
+# ── RETENTION REPOSITORY ─────────────────────────────────────────────────────
+# ADR-002: References Retention class (was RetentionEvent), retention_id column
 
 class RetentionRepository:
 
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, data: dict) -> RetentionEvent:
-        event = RetentionEvent(**data)
+    async def create(self, data: dict) -> Retention:
+        event = Retention(**data)
         self.session.add(event)
         await self.session.flush()
         return event
 
-    async def get_latest_for_customer(self, customer_id: str) -> Optional[RetentionEvent]:
+    async def get_latest_for_customer(self, customer_id: str) -> Optional[Retention]:
         result = await self.session.execute(
-            select(RetentionEvent)
-            .where(RetentionEvent.customer_id == customer_id)
-            .order_by(desc(RetentionEvent.triggered_at))
+            select(Retention)
+            .where(Retention.customer_id == customer_id)
+            .order_by(desc(Retention.triggered_at))
             .limit(1)
         )
         return result.scalar_one_or_none()
 
-    async def get_history_for_customer(self, customer_id: str) -> list[RetentionEvent]:
+    async def get_history_for_customer(self, customer_id: str) -> list[Retention]:
         result = await self.session.execute(
-            select(RetentionEvent)
-            .where(RetentionEvent.customer_id == customer_id)
-            .order_by(desc(RetentionEvent.triggered_at))
+            select(Retention)
+            .where(Retention.customer_id == customer_id)
+            .order_by(desc(Retention.triggered_at))
         )
         return list(result.scalars().all())
 
@@ -226,8 +234,8 @@ class RetentionRepository:
         action_taken: Optional[str] = None,
     ) -> None:
         await self.session.execute(
-            update(RetentionEvent)
-            .where(RetentionEvent.retention_event_id == event_key)
+            update(Retention)
+            .where(Retention.retention_id == event_key)
             .values(
                 outcome=outcome,
                 action_taken=action_taken,
@@ -235,22 +243,22 @@ class RetentionRepository:
             )
         )
 
-    async def list_pending_review(self, limit: int = 50) -> list[RetentionEvent]:
+    async def list_pending_review(self, limit: int = 50) -> list[Retention]:
         """High-churn retention events awaiting human routing decision."""
         result = await self.session.execute(
-            select(RetentionEvent)
+            select(Retention)
             .where(
-                RetentionEvent.review_decision == 'pending',
-                RetentionEvent.final_route.in_(['call_task', 'generate_offer']),
+                Retention.review_decision == 'pending',
+                Retention.final_route.in_(['call_task', 'generate_offer']),
             )
             .order_by(
-                RetentionEvent.churn_score.desc().nulls_last(),
-                RetentionEvent.triggered_at.asc(),
+                Retention.churn_score.desc().nulls_last(),
+                Retention.triggered_at.asc(),
             )
             .limit(limit)
         )
         return list(result.scalars().all())
-    
+
     async def record_review(
         self,
         event_key: str,
@@ -265,10 +273,10 @@ class RetentionRepository:
         - If the retention event doesn't exist: raises ValueError (route translates to 404).
         """
         result = await self.session.execute(
-            update(RetentionEvent)
+            update(Retention)
             .where(
-                RetentionEvent.retention_event_id == event_key,
-                RetentionEvent.reviewed_at.is_(None),
+                Retention.retention_id == event_key,
+                Retention.reviewed_at.is_(None),
             )
             .values(
                 review_decision=decision,
@@ -277,10 +285,10 @@ class RetentionRepository:
                 reviewed_at=utcnow(),
             )
             .returning(
-                RetentionEvent.review_decision,
-                RetentionEvent.reviewer_id,
-                RetentionEvent.reviewer_note,
-                RetentionEvent.reviewed_at,
+                Retention.review_decision,
+                Retention.reviewer_id,
+                Retention.reviewer_note,
+                Retention.reviewed_at,
             )
         )
         row = result.first()
@@ -295,11 +303,11 @@ class RetentionRepository:
 
         existing = await self.session.execute(
             select(
-                RetentionEvent.review_decision,
-                RetentionEvent.reviewer_id,
-                RetentionEvent.reviewer_note,
-                RetentionEvent.reviewed_at,
-            ).where(RetentionEvent.retention_event_id == event_key)
+                Retention.review_decision,
+                Retention.reviewer_id,
+                Retention.reviewer_note,
+                Retention.reviewed_at,
+            ).where(Retention.retention_id == event_key)
         )
         existing_row = existing.first()
         if existing_row is None:
@@ -318,13 +326,13 @@ class RetentionRepository:
         result = await self.session.execute(
             select(
                 func.count().label("total"),
-                func.count().filter(RetentionEvent.final_route == 'automated_campaign').label("campaigns"),
-                func.count().filter(RetentionEvent.final_route == 'call_task').label("calls"),
-                func.count().filter(RetentionEvent.final_route == 'generate_offer').label("offers"),
-                func.count().filter(RetentionEvent.outcome == 'converted').label("converted"),
-                func.avg(RetentionEvent.churn_score).label("avg_churn_score"),
+                func.count().filter(Retention.final_route == 'automated_campaign').label("campaigns"),
+                func.count().filter(Retention.final_route == 'call_task').label("calls"),
+                func.count().filter(Retention.final_route == 'generate_offer').label("offers"),
+                func.count().filter(Retention.outcome == 'converted').label("converted"),
+                func.avg(Retention.churn_score).label("avg_churn_score"),
             )
-            .where(func.date(RetentionEvent.triggered_at) == today)
+            .where(func.date(Retention.triggered_at) == today)
         )
         row = result.one()
         return {
@@ -338,7 +346,9 @@ class RetentionRepository:
         }
 
 
-# ── OFFER REPOSITORY ──────────────────────────────────────────────────────────
+# ── OFFER REPOSITORY ─────────────────────────────────────────────────────────
+# ADR-002: offer_trigger_id renamed to offer_id (parameters + columns)
+# Method get_by_trigger_id renamed to get_by_offer_id
 
 class OfferRepository:
 
@@ -351,9 +361,9 @@ class OfferRepository:
         await self.session.flush()
         return offer
 
-    async def get_by_trigger_id(self, offer_trigger_id: str) -> Optional[Offer]:
+    async def get_by_offer_id(self, offer_id: str) -> Optional[Offer]:
         result = await self.session.execute(
-            select(Offer).where(Offer.offer_trigger_id == offer_trigger_id)
+            select(Offer).where(Offer.offer_id == offer_id)
         )
         return result.scalar_one_or_none()
 
@@ -373,17 +383,17 @@ class OfferRepository:
         )
         return list(result.scalars().all())
 
-    async def record_acceptance(self, offer_trigger_id: str) -> None:
+    async def record_acceptance(self, offer_id: str) -> None:
         await self.session.execute(
             update(Offer)
-            .where(Offer.offer_trigger_id == offer_trigger_id)
+            .where(Offer.offer_id == offer_id)
             .values(offer_accepted_at=utcnow())
         )
 
-    async def record_rejection(self, offer_trigger_id: str) -> None:
+    async def record_rejection(self, offer_id: str) -> None:
         await self.session.execute(
             update(Offer)
-            .where(Offer.offer_trigger_id == offer_trigger_id)
+            .where(Offer.offer_id == offer_id)
             .values(offer_rejected_at=utcnow())
         )
 
@@ -402,10 +412,10 @@ class OfferRepository:
             .limit(limit)
         )
         return list(result.scalars().all())
-    
+
     async def record_review(
         self,
-        offer_trigger_id: str,
+        offer_id: str,
         decision: str,
         reviewer_id: str,
         note: Optional[str] = None,
@@ -419,7 +429,7 @@ class OfferRepository:
         result = await self.session.execute(
             update(Offer)
             .where(
-                Offer.offer_trigger_id == offer_trigger_id,
+                Offer.offer_id == offer_id,
                 Offer.reviewed_at.is_(None),
             )
             .values(
@@ -451,11 +461,11 @@ class OfferRepository:
                 Offer.reviewer_id,
                 Offer.reviewer_note,
                 Offer.reviewed_at,
-            ).where(Offer.offer_trigger_id == offer_trigger_id)
+            ).where(Offer.offer_id == offer_id)
         )
         existing_row = existing.first()
         if existing_row is None:
-            raise ValueError(f"Offer not found: {offer_trigger_id}")
+            raise ValueError(f"Offer not found: {offer_id}")
 
         return {
             "was_already_reviewed": True,
@@ -488,11 +498,9 @@ class OfferRepository:
             "avg_cross_sell_score": float(row.avg_cross_sell or 0),
             "acceptance_rate": row.accepted / max(row.total, 1),
         }
-    
-# ── LEAD REPOSITORY ────────────────────────────────────────────────────────
-# Paste this class into db/repositories.py, after the OfferRepository class.
-# Add Lead to the import at the top:
-#   from db.models import Claim, RetentionEvent, Offer, PipelineEvent, Lead
+
+
+# ── LEAD REPOSITORY ──────────────────────────────────────────────────────────
 
 class LeadRepository:
 
