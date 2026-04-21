@@ -1,6 +1,15 @@
 """
 INSURE.AI — SQLAlchemy ORM Models
-Maps to schema.sql tables
+Maps to schema.sql tables.
+
+ADR-002 Phase 2 changes:
+- Class RetentionEvent renamed to Retention
+- Table 'retention_events' renamed to 'retentions'
+- Column 'retention_event_id' renamed to 'retention_id'
+- Column 'offer_trigger_id' renamed to 'offer_id' (in Offer model)
+- PIPELINE_ENUM: canonical value is 'claim' (singular).
+  Legacy 'claims' value remains in the Postgres enum (cannot be dropped) but
+  is no longer written from Python.
 """
 
 import uuid
@@ -16,7 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from db.database import Base
 
-# ── SHARED ENUM STRINGS ────────────────────────────────────────────────────────
+# ── SHARED ENUM STRINGS ──────────────────────────────────────────────────────
 
 REVIEW_DECISION_ENUM = PgEnum(
     'approved', 'rejected', 'escalated', 'info_requested', 'pending',
@@ -33,10 +42,13 @@ ROUTE_ENUM = PgEnum(
 
 PRIORITY_ENUM = PgEnum('low', 'medium', 'high', 'critical', name='priority_type', create_type=False)
 
-PIPELINE_ENUM = PgEnum('lead', 'claims', 'retention', 'offer', name='pipeline_type', create_type=False)
+# ADR-002 D3: pipeline values are SINGULAR.
+# Postgres enum still contains the legacy 'claims' value (cannot be dropped),
+# but Python writes only the canonical singular forms below.
+PIPELINE_ENUM = PgEnum('lead', 'claim', 'retention', 'offer', name='pipeline_type', create_type=False)
 
 
-# ── PIPELINE EVENTS (audit log) ───────────────────────────────────────────────
+# ── PIPELINE EVENTS (audit log) ──────────────────────────────────────────────
 
 class PipelineEvent(Base):
     __tablename__ = "pipeline_events"
@@ -50,7 +62,7 @@ class PipelineEvent(Base):
     created_at:  Mapped[datetime]  = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-# ── CLAIMS ────────────────────────────────────────────────────────────────────
+# ── CLAIMS ───────────────────────────────────────────────────────────────────
 
 class Claim(Base):
     __tablename__ = "claims"
@@ -96,14 +108,16 @@ class Claim(Base):
     customer_snapshot:     Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)
 
 
-# ── RETENTION ─────────────────────────────────────────────────────────────────
+# ── RETENTION ────────────────────────────────────────────────────────────────
+# ADR-002 D1: table renamed retention_events -> retentions
+# ADR-002 D2: column renamed retention_event_id -> retention_id
 
-class RetentionEvent(Base):
-    __tablename__ = "retention_events"
+class Retention(Base):
+    __tablename__ = "retentions"
 
     id:                    Mapped[uuid.UUID]        = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     customer_id:           Mapped[str]              = mapped_column(String(64), nullable=False)
-    retention_event_id:    Mapped[Optional[str]]    = mapped_column(String(64), unique=True, nullable=True)
+    retention_id:          Mapped[Optional[str]]    = mapped_column(String(64), unique=True, nullable=True)
     trigger_type:          Mapped[str]              = mapped_column(String(64), nullable=False)
     trigger_detail:        Mapped[Optional[str]]    = mapped_column(Text)
 
@@ -143,57 +157,58 @@ class RetentionEvent(Base):
     customer_snapshot:     Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)
 
 
-# ── OFFERS ────────────────────────────────────────────────────────────────────
+# ── OFFERS ───────────────────────────────────────────────────────────────────
+# ADR-002 D2: column renamed offer_trigger_id -> offer_id
 
 class Offer(Base):
     __tablename__ = "offers"
 
-    id:                     Mapped[uuid.UUID]        = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    offer_trigger_id:       Mapped[str]              = mapped_column(String(64), unique=True, nullable=False)
-    customer_id:            Mapped[str]              = mapped_column(String(64), nullable=False)
-    trigger_type:           Mapped[str]              = mapped_column(String(64), nullable=False)
-    source_pipeline:        Mapped[str]              = mapped_column(String(32), nullable=False, default='direct')
+    id:                       Mapped[uuid.UUID]        = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    offer_id:                 Mapped[str]              = mapped_column(String(64), unique=True, nullable=False)
+    customer_id:              Mapped[str]              = mapped_column(String(64), nullable=False)
+    trigger_type:             Mapped[str]              = mapped_column(String(64), nullable=False)
+    source_pipeline:          Mapped[str]              = mapped_column(String(32), nullable=False, default='direct')
 
     # Agent output
-    recommended_product:    Mapped[Optional[str]]    = mapped_column(String(64))
-    product_display_name:   Mapped[Optional[str]]    = mapped_column(String(128))
-    offer_rationale:        Mapped[Optional[str]]    = mapped_column(Text)
-    estimated_annual_premium: Mapped[Optional[str]]  = mapped_column(String(64))
-    cross_sell_score:       Mapped[Optional[float]]  = mapped_column(Numeric(4, 3))
-    confidence:             Mapped[Optional[float]]  = mapped_column(Numeric(4, 3))
-    personalization_angle:  Mapped[Optional[str]]    = mapped_column(Text)
-    channel_recommendation: Mapped[Optional[str]]    = mapped_column(String(32))
-    urgency:                Mapped[Optional[str]]    = mapped_column(String(16))
-    agent_reasoning:        Mapped[Optional[str]]    = mapped_column(Text)
-    flags:                  Mapped[dict]             = mapped_column(JSONB, nullable=False, default=list)
+    recommended_product:      Mapped[Optional[str]]    = mapped_column(String(64))
+    product_display_name:     Mapped[Optional[str]]    = mapped_column(String(128))
+    offer_rationale:          Mapped[Optional[str]]    = mapped_column(Text)
+    estimated_annual_premium: Mapped[Optional[str]]    = mapped_column(String(64))
+    cross_sell_score:         Mapped[Optional[float]]  = mapped_column(Numeric(4, 3))
+    confidence:               Mapped[Optional[float]]  = mapped_column(Numeric(4, 3))
+    personalization_angle:    Mapped[Optional[str]]    = mapped_column(Text)
+    channel_recommendation:   Mapped[Optional[str]]    = mapped_column(String(32))
+    urgency:                  Mapped[Optional[str]]    = mapped_column(String(16))
+    agent_reasoning:          Mapped[Optional[str]]    = mapped_column(Text)
+    flags:                    Mapped[dict]             = mapped_column(JSONB, nullable=False, default=list)
 
     # Orchestrator
-    recommended_route:      Mapped[Optional[str]]    = mapped_column(String(32))
-    final_route:            Mapped[Optional[str]]    = mapped_column(ROUTE_ENUM)
-    orchestrator_override:  Mapped[bool]             = mapped_column(Boolean, nullable=False, default=False)
-    override_reason:        Mapped[Optional[str]]    = mapped_column(Text)
+    recommended_route:        Mapped[Optional[str]]    = mapped_column(String(32))
+    final_route:              Mapped[Optional[str]]    = mapped_column(ROUTE_ENUM)
+    orchestrator_override:    Mapped[bool]             = mapped_column(Boolean, nullable=False, default=False)
+    override_reason:          Mapped[Optional[str]]    = mapped_column(Text)
 
     # Review
-    review_decision:        Mapped[str]              = mapped_column(REVIEW_DECISION_ENUM, nullable=False, default='pending')
-    reviewer_id:            Mapped[Optional[str]]    = mapped_column(String(64))
-    reviewer_note:          Mapped[Optional[str]]    = mapped_column(Text)
-    reviewed_at:            Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    review_decision:          Mapped[str]              = mapped_column(REVIEW_DECISION_ENUM, nullable=False, default='pending')
+    reviewer_id:              Mapped[Optional[str]]    = mapped_column(String(64))
+    reviewer_note:            Mapped[Optional[str]]    = mapped_column(Text)
+    reviewed_at:              Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Outcome
-    offer_sent_at:          Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    offer_accepted_at:      Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    offer_rejected_at:      Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    offer_expired_at:       Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    offer_sent_at:            Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    offer_accepted_at:        Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    offer_rejected_at:        Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    offer_expired_at:         Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     # Timestamps
-    triggered_at:           Mapped[datetime]         = mapped_column(DateTime(timezone=True), server_default=func.now())
-    agent_processed_at:     Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    routed_at:              Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    triggered_at:             Mapped[datetime]         = mapped_column(DateTime(timezone=True), server_default=func.now())
+    agent_processed_at:       Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    routed_at:                Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    customer_snapshot:      Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)
-# ── LEADS ──────────────────────────────────────────────────────────────────
-# Paste this class into db/models.py, after the Offer class.
-# No new imports needed — all are already at the top of models.py.
+    customer_snapshot:        Mapped[dict]             = mapped_column(JSONB, nullable=False, default=dict)
+
+
+# ── LEADS ────────────────────────────────────────────────────────────────────
 
 class Lead(Base):
     __tablename__ = "leads"

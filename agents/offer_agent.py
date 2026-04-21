@@ -1,6 +1,15 @@
 """
 INSURE.AI — Offer Agent
 FastAPI endpoint: POST /agent/offer
+
+ADR-002 Phase 2 changes:
+- Pydantic field offer_trigger_id renamed to offer_id (input + output)
+- Dict keys + audit-event entity_id reference offer_id throughout
+- Encoding cleanup (Mojibake removed)
+
+Note: Offer agent never had the entity_id bug that Retention had —
+audit_log already used offer_trigger_id (the Business-Key). This change
+is purely a rename to satisfy ADR-002 D2 (column naming convention).
 """
 
 from fastapi import FastAPI, HTTPException, Depends
@@ -17,10 +26,10 @@ from db.repositories import OfferRepository, EventRepository
 
 logger = logging.getLogger(__name__)
 
-# ── MODELS ────────────────────────────────────────────────────────────────
+# ── MODELS ───────────────────────────────────────────────────────────────────
 
 class OfferInput(BaseModel):
-    offer_trigger_id: str
+    offer_id: str
     customer_id: str
     trigger_type: str                # "renewal", "lifecycle_event", "segment_campaign",
                                      # "cross_sell_signal", "upsell_signal", "retention_linked"
@@ -44,7 +53,7 @@ class OfferInput(BaseModel):
 
 
 class OfferResult(BaseModel):
-    offer_trigger_id: str
+    offer_id: str
     customer_id: str
     recommended_product: str
     product_display_name: str
@@ -61,7 +70,7 @@ class OfferResult(BaseModel):
     suggested_next_steps: List[str]
     processed_at: str
 
-# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 
 OFFER_SYSTEM_PROMPT = """You are the Offer Agent for INSURE.AI, an intelligent insurance automation platform.
 
@@ -84,8 +93,8 @@ PRODUCT KNOWLEDGE:
 
 CROSS-SELL SCORE FACTORS (increase score):
 - Clear coverage gap (product not in existing_products): +0.30
-- Life event match (e.g. new_child → unfall, leben): +0.20
-- Segment/industry match (e.g. IT company → cyber_business): +0.25
+- Life event match (e.g. new_child -> unfall, leben): +0.20
+- Segment/industry match (e.g. IT company -> cyber_business): +0.25
 - High engagement signal: +0.10
 - Renewal upcoming (bundle opportunity): +0.15
 - Long-term customer (loyalty angle available): +0.10
@@ -97,7 +106,7 @@ SCORE DECREASE:
 ROUTING RULES:
 - "automated_offer": cross_sell_score >= 0.65, offer value < CHF 1500/year, no complex underwriting
 - "sales_handoff": cross_sell_score >= 0.70 AND (annual_premium > CHF 1500 OR complex product)
-- "nurturing_sequence": cross_sell_score 0.40–0.64, not yet ready to buy
+- "nurturing_sequence": cross_sell_score 0.40-0.64, not yet ready to buy
 
 URGENCY:
 - "high": life event + clear gap, OR renewal due < 60 days
@@ -112,7 +121,7 @@ JSON Schema:
   "recommended_product": "product_key",
   "product_display_name": "Human readable name",
   "offer_rationale": "One sentence why this product now",
-  "estimated_annual_premium": "CHF X – Y",
+  "estimated_annual_premium": "CHF X - Y",
   "cross_sell_score": 0.00,
   "confidence": 0.00,
   "recommended_route": "automated_offer|sales_handoff|nurturing_sequence",
@@ -126,13 +135,13 @@ JSON Schema:
   "suggested_next_steps": ["...", "..."]
 }"""
 
-# ── AGENT LOGIC ───────────────────────────────────────────────────────────
+# ── AGENT LOGIC ──────────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic()
 
 def build_offer_prompt(data: OfferInput) -> str:
     parts = [
-        f"TRIGGER ID: {data.offer_trigger_id}",
+        f"OFFER ID: {data.offer_id}",
         f"Customer: {data.customer_id} | Trigger: {data.trigger_type}",
     ]
     if data.customer_name:
@@ -180,7 +189,7 @@ async def run_offer_agent(data: OfferInput) -> OfferResult:
             raise ValueError(f"Agent returned non-JSON: {raw[:200]}")
 
     return OfferResult(
-        offer_trigger_id=data.offer_trigger_id,
+        offer_id=data.offer_id,
         customer_id=data.customer_id,
         recommended_product=parsed["recommended_product"],
         product_display_name=parsed["product_display_name"],
@@ -198,7 +207,7 @@ async def run_offer_agent(data: OfferInput) -> OfferResult:
         processed_at=datetime.utcnow().isoformat() + "Z"
     )
 
-# ── FASTAPI ROUTES ────────────────────────────────────────────────────────
+# ── FASTAPI ROUTES ───────────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
@@ -215,12 +224,12 @@ def register_routes(app: FastAPI):
         try:
             result = await run_offer_agent(data)
 
-            # ── Persist to DB ──────────────────────────────────────────
+            # ── Persist to DB ──────────────────────────────────────────────
             offer_repo = OfferRepository(session)
             event_repo = EventRepository(session)
 
             await offer_repo.create({
-                "offer_trigger_id":          data.offer_trigger_id,
+                "offer_id":                  data.offer_id,
                 "customer_id":               data.customer_id,
                 "trigger_type":              data.trigger_type,
                 "source_pipeline":           "direct",
@@ -238,7 +247,7 @@ def register_routes(app: FastAPI):
                 "recommended_route":         result.recommended_route,
                 "final_route":               result.recommended_route,
                 "agent_processed_at":        datetime.utcnow(),
-                "routed_at": datetime.utcnow(),
+                "routed_at":                 datetime.utcnow(),
                 "customer_snapshot": {
                     "customer_name":          data.customer_name,
                     "segment":                data.segment,
@@ -253,10 +262,12 @@ def register_routes(app: FastAPI):
 
             await event_repo.log(
                 pipeline=    "offer",
-                entity_id=   data.offer_trigger_id,
+                entity_id=   data.offer_id,
                 entity_type= "offer",
                 event_type=  "agent_processed",
                 payload={
+                    "offer_id":         data.offer_id,
+                    "customer_id":      data.customer_id,
                     "product":          result.recommended_product,
                     "route":            result.recommended_route,
                     "cross_sell_score": result.cross_sell_score,
@@ -266,13 +277,13 @@ def register_routes(app: FastAPI):
             )
 
             logger.info(
-                f"[Offer] {data.offer_trigger_id} → {result.recommended_product} "
-                f"(score={result.cross_sell_score:.2f}) → {result.recommended_route}"
+                f"[Offer] {data.offer_id} -> {result.recommended_product} "
+                f"(score={result.cross_sell_score:.2f}) -> {result.recommended_route}"
             )
             return result
 
         except Exception as e:
-            logger.error(f"[Offer] Error processing {data.offer_trigger_id}: {e}")
+            logger.error(f"[Offer] Error processing {data.offer_id}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/agent/offer/health", tags=["Health"])

@@ -1,8 +1,17 @@
 """
 INSURE.AI — Retention Agent
 FastAPI endpoint: POST /agent/retention
+
+ADR-002 Phase 2 changes:
+- Pydantic field retention_event_id renamed to retention_id
+- Backend fallback generator: if caller omits retention_id, generates
+  RET-{customer_id}-{epoch_ms} so entity_id always carries a Business-Key
+- CRITICAL BUG FIX: event_repo.log(entity_id=...) now uses retention_id
+  (was customer_id, breaking joinability of audit trail to fact table)
+- Encoding cleanup (Mojibake removed)
 """
 
+import time
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional, List
@@ -17,11 +26,11 @@ from db.repositories import RetentionRepository, EventRepository
 
 logger = logging.getLogger(__name__)
 
-# ── MODELS ────────────────────────────────────────────────────────────────
+# ── MODELS ───────────────────────────────────────────────────────────────────
 
 class RetentionInput(BaseModel):
     customer_id: str
-    retention_event_id: Optional[str] = None
+    retention_id: Optional[str] = None
     trigger_type: str                # "login_anomaly", "portal_activity", "renewal_upcoming",
                                      # "competitor_signal", "support_contact", "payment_late", "manual"
     trigger_detail: Optional[str] = None
@@ -45,6 +54,7 @@ class RetentionInput(BaseModel):
 
 class RetentionResult(BaseModel):
     customer_id: str
+    retention_id: str
     churn_score: float
     churn_risk_level: str            # "low", "medium", "high", "critical"
     confidence: float
@@ -58,7 +68,7 @@ class RetentionResult(BaseModel):
     suggested_next_steps: List[str]
     processed_at: str
 
-# ── SYSTEM PROMPT ─────────────────────────────────────────────────────────
+# ── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 
 RETENTION_SYSTEM_PROMPT = """You are the Retention Agent for INSURE.AI, an intelligent insurance automation platform.
 
@@ -87,14 +97,14 @@ DECREASING churn risk:
 
 CHURN RISK LEVELS:
 - "critical": churn_score >= 0.80
-- "high": churn_score 0.60–0.79
-- "medium": churn_score 0.35–0.59
+- "high": churn_score 0.60-0.79
+- "medium": churn_score 0.35-0.59
 - "low": churn_score < 0.35
 
 ROUTING RULES:
 - "no_action": churn_score < 0.20, no renewal upcoming
-- "automated_campaign": churn_score 0.20–0.45, standard segment
-- "generate_offer": churn_score 0.35–0.70 OR renewal_due_days <= 90
+- "automated_campaign": churn_score 0.20-0.45, standard segment
+- "generate_offer": churn_score 0.35-0.70 OR renewal_due_days <= 90
 - "call_task": churn_score >= 0.60 OR high LTV customer (annual_premium > CHF 5000) OR customer_since_years >= 8
 
 OFFER TYPES:
@@ -125,7 +135,17 @@ JSON Schema:
   "suggested_next_steps": ["...", "..."]
 }"""
 
-# ── AGENT LOGIC ───────────────────────────────────────────────────────────
+# ── HELPERS ──────────────────────────────────────────────────────────────────
+
+def generate_retention_id(customer_id: str) -> str:
+    """
+    Backend fallback: synthesize a Business-Key when caller omits retention_id.
+    Pattern: RET-{customer_id}-{epoch_ms}
+    Example: RET-CUST-9001-1745234567890
+    """
+    return f"RET-{customer_id}-{int(time.time() * 1000)}"
+
+# ── AGENT LOGIC ──────────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic()
 
@@ -165,7 +185,7 @@ def build_retention_prompt(data: RetentionInput) -> str:
     return "\n".join(parts)
 
 
-async def run_retention_agent(data: RetentionInput) -> RetentionResult:
+async def run_retention_agent(data: RetentionInput, retention_id: str) -> RetentionResult:
     prompt = build_retention_prompt(data)
 
     message = client.messages.create(
@@ -189,6 +209,7 @@ async def run_retention_agent(data: RetentionInput) -> RetentionResult:
 
     return RetentionResult(
         customer_id=data.customer_id,
+        retention_id=retention_id,
         churn_score=parsed["churn_score"],
         churn_risk_level=parsed["churn_risk_level"],
         confidence=parsed["confidence"],
@@ -203,7 +224,7 @@ async def run_retention_agent(data: RetentionInput) -> RetentionResult:
         processed_at=datetime.utcnow().isoformat() + "Z"
     )
 
-# ── FASTAPI ROUTES ────────────────────────────────────────────────────────
+# ── FASTAPI ROUTES ───────────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
@@ -217,15 +238,19 @@ def register_routes(app: FastAPI):
         Computes churn score and recommends retention action.
         Persists result to DB.
         """
-        try:
-            result = await run_retention_agent(data)
+        # ADR-002: Generate Business-Key if caller didn't supply one.
+        # Guarantees entity_id in pipeline_events is always joinable to retentions.
+        retention_id = data.retention_id or generate_retention_id(data.customer_id)
 
-            # ── Persist to DB ──────────────────────────────────────────
+        try:
+            result = await run_retention_agent(data, retention_id)
+
+            # ── Persist to DB ──────────────────────────────────────────────
             retention_repo = RetentionRepository(session)
             event_repo     = EventRepository(session)
 
             await retention_repo.create({
-                "retention_event_id":            data.retention_event_id,
+                "retention_id":           retention_id,
                 "customer_id":            data.customer_id,
                 "trigger_type":           data.trigger_type,
                 "trigger_detail":         data.trigger_detail,
@@ -241,7 +266,7 @@ def register_routes(app: FastAPI):
                 "recommended_route":      result.recommended_route,
                 "final_route":            result.recommended_route,
                 "agent_processed_at":     datetime.utcnow(),
-                "routed_at": datetime.utcnow(),
+                "routed_at":              datetime.utcnow(),
                 "customer_snapshot": {
                     "customer_name":          data.customer_name,
                     "segment":                data.segment,
@@ -255,12 +280,16 @@ def register_routes(app: FastAPI):
                 },
             })
 
+            # ADR-002 D5: entity_id MUST be the Business-Key (retention_id),
+            # never customer_id. This is the bug fix that motivated ADR-002.
             await event_repo.log(
                 pipeline=    "retention",
-                entity_id=   data.customer_id,
+                entity_id=   retention_id,
                 entity_type= "retention",
                 event_type=  "agent_processed",
                 payload={
+                    "retention_id":     retention_id,
+                    "customer_id":      data.customer_id,
                     "churn_score":      result.churn_score,
                     "churn_risk_level": result.churn_risk_level,
                     "route":            result.recommended_route,
@@ -269,13 +298,14 @@ def register_routes(app: FastAPI):
             )
 
             logger.info(
-                f"[Retention] {data.customer_id} → churn={result.churn_score:.2f} "
-                f"({result.churn_risk_level}) → {result.recommended_route}"
+                f"[Retention] {retention_id} ({data.customer_id}) -> "
+                f"churn={result.churn_score:.2f} ({result.churn_risk_level}) "
+                f"-> {result.recommended_route}"
             )
             return result
 
         except Exception as e:
-            logger.error(f"[Retention] Error processing {data.customer_id}: {e}")
+            logger.error(f"[Retention] Error processing {retention_id} ({data.customer_id}): {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/agent/retention/health", tags=["Health"])

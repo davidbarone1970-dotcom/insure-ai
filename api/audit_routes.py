@@ -1,6 +1,17 @@
 """
 INSURE.AI — Audit, KPI & Review API Routes
 Replaces the mock AUDIT_BASE_URL with real PostgreSQL writes.
+
+ADR-002 Phase 2 changes:
+- ENTITY_TO_PIPELINE mapper REMOVED — DB enum now uses singular 'claim'
+  (the absorber for claim/claims drift is no longer needed).
+- All references to retention_event_id renamed to retention_id.
+- All references to offer_trigger_id renamed to offer_id (incl. URL paths).
+- Method get_by_trigger_id call renamed to get_by_offer_id.
+- AuditLogRequest defaults aligned with whitelist (entity_type defaults to
+  empty string — must be supplied; event_type defaults to 'pipeline.routed'
+  per ADR-002 D6).
+- Encoding cleanup (Mojibake removed).
 """
 
 from datetime import datetime, timezone
@@ -21,32 +32,26 @@ from db.repositories import (
 )
 
 
-# ── ENUM MAPPING ──────────────────────────────────────────────────────────────
-# DB enum `pipeline_type` has values: lead, claims, retention, offer
-# (intentionally mixed singular/plural — absorbed here so UI/API stay clean).
-# Keys are the HITL entity_type values used in the UI + review API.
+# ── ENTITY-TYPE WHITELIST ────────────────────────────────────────────────────
+# ADR-002 D3 + D4: pipeline values are singular. No more claim/claims absorber.
+# This set is used purely for input validation on the review endpoint.
 
-ENTITY_TO_PIPELINE = {
-    "claim":     "claims",
-    "retention": "retention",
-    "offer":     "offer",
-    "lead":      "lead",
-}
+VALID_ENTITY_TYPES = {"claim", "retention", "offer", "lead"}
 
 
 # ── REQUEST / RESPONSE MODELS ────────────────────────────────────────────────
 
 class AuditLogRequest(BaseModel):
-    pipeline: str
-    entity_id: str
-    entity_type: str = "unknown"
-    event_type: str = "pipeline_event"
+    pipeline: str               # "claim" | "retention" | "offer" | "lead"
+    entity_id: str              # business key: claim_id / retention_id / offer_id / lead_id
+    entity_type: str            # "claim" | "retention" | "offer" | "lead"
+    event_type: str             # ADR-002 D6 whitelist: agent_processed | pipeline.routed | human_review | outcome_recorded
     payload: dict = {}
 
 
 class ReviewRequest(BaseModel):
     entity_type: str            # "claim" | "retention" | "offer" | "lead"
-    entity_id: str              # business key: claim_id / retention_event_id / offer_trigger_id / lead_id
+    entity_id: str              # business key: claim_id / retention_id / offer_id / lead_id
     decision: str               # "approved" | "rejected" | "escalated" | "info_requested"
     reviewer_id: str
     note: Optional[str] = None
@@ -59,11 +64,11 @@ class KpiResponse(BaseModel):
     offers: dict
 
 
-# ── ROUTE REGISTRATION ────────────────────────────────────────────────────────
+# ── ROUTE REGISTRATION ───────────────────────────────────────────────────────
 
 def register_routes(app: FastAPI):
 
-    # ── AUDIT LOG (called by n8n "Audit Log" nodes) ────────────────────────
+    # ── AUDIT LOG (called by n8n "Audit Log" nodes) ─────────────────────────
 
     @app.post("/api/v1/audit/log", tags=["Audit"])
     async def audit_log(
@@ -72,14 +77,11 @@ def register_routes(app: FastAPI):
     ):
         """
         Generic audit log endpoint — called by all n8n pipelines.
-        Normalizes pipeline value in case caller uses singular form
-        (e.g. 'claim' instead of 'claims').
+        Caller MUST supply pipeline as singular ('claim', not 'claims').
         """
         repo = EventRepository(session)
-        pipeline = ENTITY_TO_PIPELINE.get(req.pipeline, req.pipeline)
-
         event = await repo.log(
-            pipeline=pipeline,
+            pipeline=req.pipeline,
             entity_id=req.entity_id,
             entity_type=req.entity_type,
             event_type=req.event_type,
@@ -88,7 +90,7 @@ def register_routes(app: FastAPI):
         return {"logged": True, "event_id": str(event.id)}
 
 
-    # ── PIPELINE WRITE ENDPOINTS (called by agents after processing) ──────
+    # ── PIPELINE WRITE ENDPOINTS (called by agents after processing) ────────
 
     @app.post("/api/v1/claims", tags=["Claims"])
     async def store_claim(
@@ -119,14 +121,14 @@ def register_routes(app: FastAPI):
         session: AsyncSession = Depends(db_session),
     ):
         repo = OfferRepository(session)
-        existing = await repo.get_by_trigger_id(data.get("offer_trigger_id", ""))
+        existing = await repo.get_by_offer_id(data.get("offer_id", ""))
         if existing:
-            raise HTTPException(status_code=409, detail="Offer trigger already exists")
+            raise HTTPException(status_code=409, detail="Offer already exists")
         offer = await repo.create(data)
-        return {"id": str(offer.id), "offer_trigger_id": offer.offer_trigger_id}
+        return {"id": str(offer.id), "offer_id": offer.offer_id}
 
 
-    # ── HITL REVIEW (called by HITL dashboard) ─────────────────────────────
+    # ── HITL REVIEW (called by HITL dashboard) ──────────────────────────────
 
     @app.post("/api/v1/review", tags=["Human Review"])
     async def submit_review(
@@ -139,7 +141,7 @@ def register_routes(app: FastAPI):
           with already_reviewed=true (no duplicate audit event is written).
         - Returns 404 if the entity doesn't exist.
         """
-        if req.entity_type not in ENTITY_TO_PIPELINE:
+        if req.entity_type not in VALID_ENTITY_TYPES:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown entity_type: {req.entity_type}"
@@ -164,7 +166,7 @@ def register_routes(app: FastAPI):
                 )
             elif req.entity_type == "offer":
                 result = await OfferRepository(session).record_review(
-                    offer_trigger_id=req.entity_id,
+                    offer_id=req.entity_id,
                     decision=req.decision,
                     reviewer_id=req.reviewer_id,
                     note=req.note,
@@ -187,7 +189,7 @@ def register_routes(app: FastAPI):
         # Audit event only on first successful review.
         if not result["was_already_reviewed"]:
             await event_repo.log(
-                pipeline=ENTITY_TO_PIPELINE[req.entity_type],
+                pipeline=req.entity_type,
                 entity_id=req.entity_id,
                 entity_type=req.entity_type,
                 event_type="human_review",
@@ -206,7 +208,7 @@ def register_routes(app: FastAPI):
             "reviewed_at": result["reviewed_at"].isoformat() if result["reviewed_at"] else None,
         }
 
-    # ── KPI ENDPOINT (called by dashboard) ────────────────────────────────
+    # ── KPI ENDPOINT (called by dashboard) ──────────────────────────────────
 
     @app.get("/api/v1/kpi/today", response_model=KpiResponse, tags=["KPI"])
     async def kpi_today(session: AsyncSession = Depends(db_session)):
@@ -223,9 +225,8 @@ def register_routes(app: FastAPI):
         )
 
 
-    # ── QUEUE ENDPOINT (HITL dashboard queue) ─────────────────────────────
+    # ── QUEUE ENDPOINT (HITL dashboard queue) ───────────────────────────────
 
-    # ── QUEUE ENDPOINT (HITL dashboard queue) ────────────────────────────────
     @app.get("/api/v1/review/queue", tags=["Human Review"])
     async def get_review_queue(
         pipeline: Optional[str] = None,
@@ -258,7 +259,7 @@ def register_routes(app: FastAPI):
 
         results = []
 
-        # ── Claims ───────────────────────────────────────────────────────────
+        # ── Claims ──────────────────────────────────────────────────────────
         if not pipeline or pipeline == "claim":
             claims = await ClaimRepository(session).list_pending_review(limit=50)
             for c in claims:
@@ -279,7 +280,7 @@ def register_routes(app: FastAPI):
                     "customer_id": c.customer_id,
                 })
 
-        # ── Retention ────────────────────────────────────────────────────────
+        # ── Retention ───────────────────────────────────────────────────────
         if not pipeline or pipeline == "retention":
             events = await RetentionRepository(session).list_pending_review(limit=50)
             for e in events:
@@ -287,7 +288,7 @@ def register_routes(app: FastAPI):
                 rank = score_to_rank(score)
                 results.append({
                     "entity_type": "retention",
-                    "entity_id": e.retention_event_id,
+                    "entity_id": e.retention_id,
                     "id": str(e.id),
                     "urgency": RANK_TO_LABEL[rank],
                     "urgency_rank": rank,
@@ -301,7 +302,7 @@ def register_routes(app: FastAPI):
                     "customer_id": e.customer_id,
                 })
 
-        # ── Offer ────────────────────────────────────────────────────────────
+        # ── Offer ───────────────────────────────────────────────────────────
         if not pipeline or pipeline == "offer":
             offers = await OfferRepository(session).list_pending_review(limit=50)
             for o in offers:
@@ -313,7 +314,7 @@ def register_routes(app: FastAPI):
                     rank = score_to_rank(score)
                 results.append({
                     "entity_type": "offer",
-                    "entity_id": o.offer_trigger_id,
+                    "entity_id": o.offer_id,
                     "id": str(o.id),
                     "urgency": RANK_TO_LABEL[rank],
                     "urgency_rank": rank,
@@ -327,7 +328,7 @@ def register_routes(app: FastAPI):
                     "customer_id": o.customer_id,
                 })
 
-        # ── Lead ─────────────────────────────────────────────────────────────
+        # ── Lead ────────────────────────────────────────────────────────────
         if not pipeline or pipeline == "lead":
             leads = await LeadRepository(session).list_pending_review(limit=50)
             for l in leads:
@@ -348,31 +349,31 @@ def register_routes(app: FastAPI):
                     "customer_id": l.customer_id,
                 })
 
-        # ── Global sort: urgency DESC, queued_at ASC ─────────────────────────
+        # ── Global sort: urgency DESC, queued_at ASC ────────────────────────
         results.sort(key=lambda x: (
             -x["urgency_rank"],
-            x["queued_at"] or "9999",  # null queued_at → treat as oldest
+            x["queued_at"] or "9999",  # null queued_at -> treat as oldest
         ))
 
         return {"queue": results, "total": len(results)}
 
 
-    # ── OUTCOME UPDATES ────────────────────────────────────────────────────
+    # ── OUTCOME UPDATES ─────────────────────────────────────────────────────
 
-    @app.post("/api/v1/offers/{offer_trigger_id}/accepted", tags=["Offers"])
+    @app.post("/api/v1/offers/{offer_id}/accepted", tags=["Offers"])
     async def offer_accepted(
-        offer_trigger_id: str,
+        offer_id: str,
         session: AsyncSession = Depends(db_session),
     ):
-        await OfferRepository(session).record_acceptance(offer_trigger_id)
+        await OfferRepository(session).record_acceptance(offer_id)
         return {"updated": True}
 
-    @app.post("/api/v1/offers/{offer_trigger_id}/rejected", tags=["Offers"])
+    @app.post("/api/v1/offers/{offer_id}/rejected", tags=["Offers"])
     async def offer_rejected(
-        offer_trigger_id: str,
+        offer_id: str,
         session: AsyncSession = Depends(db_session),
     ):
-        await OfferRepository(session).record_rejection(offer_trigger_id)
+        await OfferRepository(session).record_rejection(offer_id)
         return {"updated": True}
 
     @app.post("/api/v1/retention/{event_key}/outcome", tags=["Retention"])
